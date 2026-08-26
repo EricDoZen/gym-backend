@@ -29,6 +29,7 @@ import {
   normalizePackageName,
 } from '../lib/member-code.js'
 import type { DashboardStatsDto } from '../lib/types.js'
+import { getInsertId } from '../lib/insert-id.js'
 import { httpError } from '../middleware/error.js'
 
 export async function listMembers(options: {
@@ -113,7 +114,7 @@ export async function createMember(input: {
   const joinDate = new Date()
   const expireDate = addYears(joinDate, 1)
 
-  const [result] = await db.insert(members).values({
+  const result = await db.insert(members).values({
     memberCode,
     fullName: input.name.trim(),
     phone: input.phone?.trim() || '+95 9 000 000 000',
@@ -126,7 +127,7 @@ export async function createMember(input: {
     avatarUrl: input.avatar ?? '/images/img-1352436804.jpg',
   })
 
-  const insertedId = Number(result.insertId)
+  const insertedId = getInsertId(result)
   return getMemberById(insertedId)
 }
 

@@ -1,4 +1,5 @@
 import { eq } from 'drizzle-orm'
+import { getInsertId } from '../lib/insert-id.js'
 import { getDb } from '../db/client.js'
 import { checkins, members } from '../db/schema.js'
 import { toCheckinDto } from '../lib/mappers.js'
@@ -14,7 +15,7 @@ export async function checkInMember(memberId: number) {
     .limit(1)
   if (!member) httpError(404, 'Member not found')
 
-  const [result] = await db.insert(checkins).values({
+  const result = await db.insert(checkins).values({
     memberId,
     membershipType: member.packageName,
   })
@@ -24,7 +25,7 @@ export async function checkInMember(memberId: number) {
     .set({ attendanceCount: member.attendanceCount + 1 })
     .where(eq(members.id, memberId))
 
-  const insertedId = Number(result.insertId)
+  const insertedId = getInsertId(result)
   const [row] = await db
     .select({
       id: checkins.id,

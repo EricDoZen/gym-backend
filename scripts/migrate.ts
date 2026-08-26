@@ -2,14 +2,19 @@ import 'dotenv/config'
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import mysql from 'mysql2/promise'
 import { env } from '../src/env.js'
+import {
+  createTiDBConnection,
+  getDatabaseTargetLabel,
+} from '../src/db/config.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
 async function main() {
-  if (!env.DATABASE_URL) {
-    console.error('DATABASE_URL is required. Copy .env.example to .env and set it.')
+  if (!env.DATABASE_URL && !env.DB_HOST) {
+    console.error(
+      'DATABASE_URL or DB_HOST/DB_USER/DB_PASSWORD is required. Copy .env.example to .env and set it.',
+    )
     process.exit(1)
   }
 
@@ -20,14 +25,15 @@ async function main() {
     .map((part) => part.trim())
     .filter(Boolean)
 
-  const connection = await mysql.createConnection(env.DATABASE_URL)
+  console.log(`Connecting to ${getDatabaseTargetLabel(false)} ...`)
+  const connection = createTiDBConnection(false)
   try {
     for (const statement of statements) {
-      await connection.query(statement)
+      await connection.execute(statement)
     }
     console.log('Migration complete: elite_gym schema ready')
   } finally {
-    await connection.end()
+    // Stateless HTTP driver; nothing to close.
   }
 }
 

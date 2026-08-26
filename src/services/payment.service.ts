@@ -2,6 +2,7 @@ import { desc, eq } from 'drizzle-orm'
 import { getDb } from '../db/client.js'
 import { members, payments } from '../db/schema.js'
 import { parseFlexibleDate, toSqlDate } from '../lib/dates.js'
+import { getInsertId } from '../lib/insert-id.js'
 import { toPaymentDto } from '../lib/mappers.js'
 import { normalizePackageName } from '../lib/member-code.js'
 import { httpError } from '../middleware/error.js'
@@ -50,7 +51,7 @@ export async function createPayment(input: {
     ? toSqlDate(parseFlexibleDate(input.paymentDate))
     : toSqlDate(new Date())
 
-  const [result] = await db.insert(payments).values({
+  const result = await db.insert(payments).values({
     memberId: input.memberId,
     packageName: normalizePackageName(input.packageName),
     amountMmk: input.amount,
@@ -58,7 +59,7 @@ export async function createPayment(input: {
     paymentDate,
   })
 
-  const insertedId = Number(result.insertId)
+  const insertedId = getInsertId(result)
   const [row] = await db
     .select({
       id: payments.id,

@@ -9,8 +9,9 @@ import {
   payments,
   staffUsers,
 } from '../src/db/schema.js'
-import { env } from '../src/env.js'
+import { getInsertId } from '../src/lib/insert-id.js'
 import { parseFlexibleDate, toSqlDate } from '../src/lib/dates.js'
+import { env } from '../src/env.js'
 
 const PACKAGES = [
   { code: 'basic', name: 'Basic', priceMmk: 150_000, durationDays: 30 },
@@ -107,7 +108,7 @@ async function main() {
 
   const memberIds: Record<string, number> = {}
   for (const member of SEED_MEMBERS) {
-    const [result] = await db.insert(members).values({
+    const result = await db.insert(members).values({
       memberCode: member.memberCode,
       fullName: member.fullName,
       phone: member.phone,
@@ -119,7 +120,7 @@ async function main() {
       attendanceCount: member.attendanceCount,
       avatarUrl: member.avatarUrl,
     })
-    memberIds[member.memberCode] = Number(result.insertId)
+    memberIds[member.memberCode] = getInsertId(result)
   }
 
   const checkinSeed = [

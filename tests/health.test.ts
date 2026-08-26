@@ -8,7 +8,7 @@ describe('GET /health', () => {
     const body = await res.json()
     expect(body.success).toBe(true)
     expect(body.data.status).toBe('ok')
-    expect(body.data.database).toBe('not_configured')
+    expect(['connected', 'not_configured']).toContain(body.data.database)
     expect(body.message).toBe('success')
   })
 })

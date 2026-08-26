@@ -1,4 +1,5 @@
 import { eq } from 'drizzle-orm'
+import { getInsertId } from '../lib/insert-id.js'
 import { getDb } from '../db/client.js'
 import { trialRegistrations } from '../db/schema.js'
 import { parseFlexibleDate, toSqlDate } from '../lib/dates.js'
@@ -18,7 +19,7 @@ export async function registerTrial(input: {
     ? toSqlDate(parseFlexibleDate(input.startDate))
     : null
 
-  const [result] = await db.insert(trialRegistrations).values({
+  const result = await db.insert(trialRegistrations).values({
     fullName: input.fullName.trim(),
     phone: input.phone.trim(),
     email: input.email?.trim() || null,
@@ -26,7 +27,7 @@ export async function registerTrial(input: {
     preferredStartDate,
   })
 
-  const id = Number(result.insertId)
+  const id = getInsertId(result)
   const [row] = await db
     .select()
     .from(trialRegistrations)

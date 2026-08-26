@@ -1,3 +1,4 @@
+import 'dotenv/config'
 import { z } from 'zod'
 
 const envSchema = z.object({
@@ -6,6 +7,11 @@ const envSchema = z.object({
     .enum(['development', 'production', 'test'])
     .default('development'),
   DATABASE_URL: z.string().optional(),
+  DB_HOST: z.string().optional(),
+  DB_PORT: z.coerce.number().default(4000),
+  DB_USER: z.string().optional(),
+  DB_PASSWORD: z.string().optional(),
+  DB_NAME: z.string().default('elite_gym'),
   JWT_SECRET: z.string().default('dev-only-change-me-in-production'),
   JWT_EXPIRES_IN: z.string().default('8h'),
   CORS_ORIGIN: z

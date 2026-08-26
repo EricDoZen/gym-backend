@@ -1,4 +1,5 @@
 import { serve } from '@hono/node-server'
+import { swaggerUI } from '@hono/swagger-ui'
 import { cors } from 'hono/cors'
 import { Hono } from 'hono'
 import { sql } from 'drizzle-orm'
@@ -13,6 +14,7 @@ import { dashboardRoutes } from './routes/dashboard.js'
 import { memberRoutes } from './routes/members.js'
 import { paymentRoutes } from './routes/payments.js'
 import { trialRoutes } from './routes/trials.js'
+import { openApiDoc } from './openapi.js'
 
 const app = new Hono()
 
@@ -26,6 +28,10 @@ app.use(
     allowMethods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
   }),
 )
+
+app.get('/', (c) => c.redirect('/docs'))
+app.get('/doc', (c) => c.json(openApiDoc))
+app.get('/docs', swaggerUI({ url: '/doc' }))
 
 app.get('/health', async (c) => {
   if (!hasDatabase()) {
@@ -60,4 +66,5 @@ const isDirectRun =
 if (isDirectRun) {
   serve({ fetch: app.fetch, port: env.PORT })
   console.log(`gym-backend listening on http://localhost:${env.PORT}`)
+  console.log(`Swagger UI: http://localhost:${env.PORT}/docs`)
 }

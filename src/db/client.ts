@@ -1,34 +1,32 @@
-import { drizzle, type MySql2Database } from 'drizzle-orm/mysql2'
-import mysql from 'mysql2/promise'
+import { connect, type Connection } from '@tidbcloud/serverless'
+import { drizzle, type TiDBServerlessDatabase } from 'drizzle-orm/tidb-serverless'
 import { env } from '../env.js'
+import { getConnectConfig } from './config.js'
 import * as schema from './schema.js'
 
-type Db = MySql2Database<typeof schema>
+type Db = TiDBServerlessDatabase<typeof schema>
 
-let pool: mysql.Pool | undefined
+let client: Connection | undefined
 let db: Db | undefined
 
 export function hasDatabase() {
-  return Boolean(env.DATABASE_URL)
+  return Boolean(env.DATABASE_URL || env.DB_HOST)
 }
 
 export function getDb(): Db {
-  if (!env.DATABASE_URL) {
+  if (!env.DATABASE_URL && !env.DB_HOST) {
     throw new Error('DATABASE_URL is not configured')
   }
   if (!db) {
-    pool = mysql.createPool(env.DATABASE_URL)
-    db = drizzle(pool, { schema, mode: 'default' })
+    client = connect(getConnectConfig(true))
+    db = drizzle(client, { schema })
   }
   return db
 }
 
 export async function closeDb() {
-  if (pool) {
-    await pool.end()
-    pool = undefined
-    db = undefined
-  }
+  client = undefined
+  db = undefined
 }
 
 export { schema }

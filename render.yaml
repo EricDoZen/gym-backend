@@ -1,0 +1,25 @@
+# Render Blueprint — connect repo at https://dashboard.render.com
+# After deploy, set DATABASE_URL in the Render dashboard (TiDB Cloud connection string).
+services:
+  - type: web
+    name: gym-backend
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 8h
+      - key: CORS_ORIGIN
+        value: http://localhost:5173,https://gym-frontend-three-psi.vercel.app
+      - key: DATABASE_URL
+        sync: false
+      - key: SEED_OWNER_PASSWORD
+        sync: false
+      - key: SEED_RECEPTION_PASSWORD
+        sync: false
