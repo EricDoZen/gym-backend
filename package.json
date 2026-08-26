@@ -18,7 +18,7 @@
     "@hono/node-server": "^1.14.0",
     "@hono/swagger-ui": "^0.6.1",
     "@tidbcloud/serverless": "^0.2.0",
-    "bcrypt": "^5.1.1",
+    "bcryptjs": "^3.0.3",
     "dotenv": "^16.4.7",
     "drizzle-orm": "^0.39.3",
     "hono": "^4.7.4",
@@ -26,7 +26,7 @@
     "zod": "^3.24.2"
   },
   "devDependencies": {
-    "@types/bcrypt": "^5.0.2",
+    "@types/bcryptjs": "^2.4.6",
     "@types/node": "^22.13.4",
     "drizzle-kit": "^0.30.4",
     "tsx": "^4.19.3",

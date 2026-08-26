@@ -1,5 +1,5 @@
 import 'dotenv/config'
-import bcrypt from 'bcrypt'
+import bcrypt from 'bcryptjs'
 import { count, eq } from 'drizzle-orm'
 import { closeDb, getDb } from '../src/db/client.js'
 import {

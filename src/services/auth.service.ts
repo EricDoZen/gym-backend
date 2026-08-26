@@ -1,4 +1,4 @@
-import bcrypt from 'bcrypt'
+import bcrypt from 'bcryptjs'
 import { SignJWT } from 'jose'
 import { eq } from 'drizzle-orm'
 import { getDb } from '../db/client.js'
