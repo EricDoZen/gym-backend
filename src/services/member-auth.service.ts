@@ -1,6 +1,6 @@
 import bcrypt from 'bcryptjs'
 import { SignJWT } from 'jose'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import { getDb } from '../db/client.js'
 import { memberAccounts, members } from '../db/schema.js'
 import { env } from '../env.js'
@@ -51,6 +51,7 @@ export async function activateMemberAccount(
         isActive: true,
         activatedAt: new Date(),
         passwordChangedAt: new Date(),
+        tokenVersion: sql`${memberAccounts.tokenVersion} + 1`,
       })
       .where(eq(memberAccounts.id, existing.id))
   } else {
@@ -75,6 +76,7 @@ export async function memberLogin(memberCode: string, password: string) {
       accountId: memberAccounts.id,
       passwordHash: memberAccounts.passwordHash,
       accountActive: memberAccounts.isActive,
+      tokenVersion: memberAccounts.tokenVersion,
     })
     .from(memberAccounts)
     .innerJoin(members, eq(memberAccounts.memberId, members.id))
@@ -96,6 +98,7 @@ export async function memberLogin(memberCode: string, password: string) {
 
   const token = await new SignJWT({
     kind: 'member',
+    ver: row.tokenVersion,
     memberCode: row.memberCode,
     name: row.memberName,
   })
@@ -144,6 +147,7 @@ export async function changeMemberPassword(
     .set({
       passwordHash: await bcrypt.hash(newPassword, 12),
       passwordChangedAt: new Date(),
+      tokenVersion: sql`${memberAccounts.tokenVersion} + 1`,
     })
     .where(eq(memberAccounts.id, account.id))
 }

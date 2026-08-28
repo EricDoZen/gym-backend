@@ -15,7 +15,36 @@ jobs:
     steps:
       - name: Check backend health
         run: curl --fail --silent --show-error --retry 2 --max-time 20 https://gym-backend-wheat.vercel.app/health
+
       - name: Check backend readiness
         run: curl --fail --silent --show-error --retry 2 --max-time 20 https://gym-backend-wheat.vercel.app/ready
-      - name: Check frontend
-        run: curl --fail --silent --show-error --retry 2 --max-time 20 https://gym-frontend-three-psi.vercel.app/ > /dev/null
+
+      - name: Check production OpenAPI contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          doc="$(curl --fail --silent --show-error --retry 2 --max-time 20 https://gym-backend-wheat.vercel.app/doc)"
+          grep -q '"/api/member-auth/login"' <<<"$doc"
+          grep -q '"/api/payments"' <<<"$doc"
+
+      - name: Check production CORS
+        shell: bash
+        run: |
+          set -euo pipefail
+          headers="$(mktemp)"
+          curl --fail --silent --show-error --max-time 20 \
+            -H 'Origin: https://gym-frontend-three-psi.vercel.app' \
+            -D "$headers" \
+            https://gym-backend-wheat.vercel.app/health \
+            -o /dev/null
+          grep -qi '^access-control-allow-origin: https://gym-frontend-three-psi.vercel.app' "$headers"
+
+      - name: Check frontend home and deep links
+        shell: bash
+        run: |
+          set -euo pipefail
+          for path in / /admin/login /portal/status; do
+            curl --fail --silent --show-error --retry 2 --max-time 20 \
+              "https://gym-frontend-three-psi.vercel.app${path}" \
+              -o /dev/null
+          done

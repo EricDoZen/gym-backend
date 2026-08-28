@@ -37,6 +37,9 @@ export const memberAuthMiddleware = createMiddleware<MemberAuthContext>(
 
     const account = await getActiveMemberAccount(memberId)
     if (!account) httpError(401, 'Inactive member portal account')
+    if (Number(payload.ver) !== account.tokenVersion) {
+      httpError(401, 'Member session was revoked; please sign in again')
+    }
 
     c.set('member', await getMemberById(memberId))
     await next()

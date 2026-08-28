@@ -9,6 +9,7 @@ import {
   memberAccounts,
   memberRequests,
   members,
+  membershipActions,
   progressEntries,
   staffUsers,
   trainers,
@@ -37,6 +38,7 @@ async function staffLogin(email: string, password: string) {
 describe.sequential('production hardening API', () => {
   const stamp = Date.now()
   const memberPassword = 'MemberPortal9x!'
+  const memberPassword2 = 'MemberPortal10x!'
   const staffPassword = 'TempStaff9x!'
   const staffPassword2 = 'TempStaff10x!'
   const tempPhone = `+95 9 66${String(stamp).slice(-7)}`
@@ -83,6 +85,7 @@ describe.sequential('production hardening API', () => {
       await db.delete(progressEntries).where(eq(progressEntries.memberId, memberId))
       await db.delete(workoutPlans).where(eq(workoutPlans.memberId, memberId))
       await db.delete(memberRequests).where(eq(memberRequests.memberId, memberId))
+      await db.delete(membershipActions).where(eq(membershipActions.memberId, memberId))
       await db.delete(memberAccounts).where(eq(memberAccounts.memberId, memberId))
       await db.delete(members).where(eq(members.id, memberId))
       await db
@@ -180,6 +183,11 @@ describe.sequential('production hardening API', () => {
       },
     )
     expect(reset.status).toBe(200)
+
+    const revokedToken = await app.request('/api/auth/me', {
+      headers: authHeaders(tempToken),
+    })
+    expect(revokedToken.status).toBe(401)
 
     const oldLogin = await app.request('/api/auth/login', {
       method: 'POST',
@@ -314,6 +322,31 @@ describe.sequential('production hardening API', () => {
     const requestsBody = (await requests.json()) as any
     const resolved = requestsBody.data.find((row: any) => Number(row.id) === requestId)
     expect(resolved.status).toBe('Approved')
+  })
+
+  it('revokes an existing member session after a password change', async () => {
+    const changed = await app.request('/api/member-auth/change-password', {
+      method: 'POST',
+      headers: authHeaders(memberToken),
+      body: JSON.stringify({
+        currentPassword: memberPassword,
+        newPassword: memberPassword2,
+      }),
+    })
+    expect(changed.status).toBe(200)
+
+    const revoked = await app.request('/api/member-auth/me', {
+      headers: authHeaders(memberToken),
+    })
+    expect(revoked.status).toBe(401)
+
+    const login = await app.request('/api/member-auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ memberCode, password: memberPassword2 }),
+    })
+    expect(login.status).toBe(200)
+    memberToken = ((await login.json()) as any).data.token
   })
 
   it('exposes request IDs, readiness and owner audit logs', async () => {

@@ -12,7 +12,9 @@ npm run db:backup:verify
 npm run db:migrate
 ```
 
-Expected V1 migration history: `0001`, `0002`, `0003`.
+Expected V1.0.1 migration history: `0001`, `0002`, `0003`, `0004`.
+
+Run `npm run release:preflight` before schema changes. It must report zero duplicate invariant groups.
 
 ## 2. Backend verification
 
@@ -69,6 +71,8 @@ Verify:
 - CORS contains only expected localhost development origins and the production frontend.
 - Production JWT secret is not a documented/default value.
 - Rate limiting uses TiDB in production.
+- Staff/member password changes increment token versions and revoke previously issued sessions.
+- Paid renewal/upgrade receipts apply the membership change in the same database transaction.
 - Security headers and request IDs are enabled.
 
 ## 6. Release bookkeeping

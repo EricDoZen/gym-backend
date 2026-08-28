@@ -16,6 +16,7 @@ const createPaymentSchema = z.object({
   paymentMethod: z.string().trim().min(1).max(50).default('Cash'),
   referenceNo: z.string().trim().max(100).optional(),
   idempotencyKey: z.string().trim().min(8).max(100),
+  membershipAction: z.enum(['renew', 'upgrade']).optional(),
   paymentDate: z
     .string()
     .trim()
@@ -45,7 +46,12 @@ export const paymentRoutes = new Hono<AuthContext>()
       entityType: 'payment',
       entityId: payment.id,
       ipAddress: getClientIp(c),
-      metadata: { memberId: payment.memberId, amount: payment.amount, status: payment.status },
+      metadata: {
+        memberId: payment.memberId,
+        amount: payment.amount,
+        status: payment.status,
+        membershipAction: payment.membershipAction || null,
+      },
     })
     return c.json(ok(payment, 'Payment recorded'))
   })

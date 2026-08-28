@@ -322,13 +322,23 @@ export async function createMemberRequest(
     .limit(1)
   if (existing.length) httpError(409, 'A matching request is already pending')
 
-  const result = await db.insert(memberRequests).values({
-    memberId,
-    requestType: input.requestType,
-    requestedPackage: input.requestedPackage?.trim() || null,
-    status: 'Pending',
-  })
-  return { id: String(getInsertId(result)), status: 'Pending' as const }
+  const pendingKey = `${memberId}:${input.requestType}`
+  try {
+    const result = await db.insert(memberRequests).values({
+      memberId,
+      requestType: input.requestType,
+      requestedPackage: input.requestedPackage?.trim() || null,
+      status: 'Pending',
+      pendingKey,
+    })
+    return { id: String(getInsertId(result)), status: 'Pending' as const }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    if (/uk_member_requests_pending|pending_key|duplicate/i.test(message)) {
+      httpError(409, 'A matching request is already pending')
+    }
+    throw error
+  }
 }
 
 export async function listMemberRequests(memberId: number) {
@@ -457,19 +467,12 @@ export async function resolveMemberRequest(
       .limit(1)
     if (!request) httpError(404, 'Pending member request not found')
 
-    if (decision === 'approve') {
-      await performMemberActionInDb(
-        tx,
-        request.memberId,
-        request.requestType,
-        request.requestedPackage ?? undefined,
-      )
-    }
-
-    await tx
+    const nextStatus = decision === 'approve' ? 'Approved' : 'Rejected'
+    const claimResult = await tx
       .update(memberRequests)
       .set({
-        status: decision === 'approve' ? 'Approved' : 'Rejected',
+        status: nextStatus,
+        pendingKey: null,
         resolvedAt: new Date(),
         resolvedByStaffId: staffId,
       })
@@ -480,6 +483,22 @@ export async function resolveMemberRequest(
         ),
       )
 
-    return { status: decision === 'approve' ? 'Approved' : 'Rejected' }
+    const affectedRows = Number(
+      (claimResult as { rowsAffected?: number }).rowsAffected ?? 0,
+    )
+    if (affectedRows !== 1) {
+      httpError(409, 'Member request was already resolved')
+    }
+
+    if (decision === 'approve') {
+      await performMemberActionInDb(
+        tx,
+        request.memberId,
+        request.requestType,
+        request.requestedPackage ?? undefined,
+      )
+    }
+
+    return { status: nextStatus }
   })
 }

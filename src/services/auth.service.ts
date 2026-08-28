@@ -1,6 +1,6 @@
 import bcrypt from 'bcryptjs'
 import { SignJWT } from 'jose'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import { getInsertId } from '../lib/insert-id.js'
 import { getDb } from '../db/client.js'
 import { staffUsers } from '../db/schema.js'
@@ -48,6 +48,7 @@ export async function login(email: string, password: string) {
     role: user.role,
     name: user.fullName,
     kind: 'staff',
+    ver: user.tokenVersion,
   })
     .setProtectedHeader({ alg: 'HS256' })
     .setSubject(String(user.id))
@@ -163,7 +164,12 @@ export async function updateStaff(
       ...(email ? { email } : {}),
       ...(input.role ? { role: input.role } : {}),
       ...(input.fullName ? { fullName: input.fullName.trim() } : {}),
-      ...(typeof input.isActive === 'boolean' ? { isActive: input.isActive } : {}),
+      ...(typeof input.isActive === 'boolean'
+        ? {
+            isActive: input.isActive,
+            tokenVersion: sql`${staffUsers.tokenVersion} + 1`,
+          }
+        : {}),
     })
     .where(eq(staffUsers.id, id))
 
@@ -189,6 +195,7 @@ export async function changePassword(
     .set({
       passwordHash: await hashPassword(newPassword),
       passwordChangedAt: new Date(),
+      tokenVersion: sql`${staffUsers.tokenVersion} + 1`,
     })
     .where(eq(staffUsers.id, id))
 }
@@ -203,6 +210,7 @@ export async function resetStaffPassword(id: number, newPassword: string) {
     .set({
       passwordHash: await hashPassword(newPassword),
       passwordChangedAt: new Date(),
+      tokenVersion: sql`${staffUsers.tokenVersion} + 1`,
     })
     .where(eq(staffUsers.id, id))
 }

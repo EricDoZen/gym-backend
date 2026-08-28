@@ -9,6 +9,7 @@ import {
   memberAccounts,
   memberTrainerAssignments,
   members,
+  membershipActions,
   payments,
   trainers,
 } from '../src/db/schema.js'
@@ -71,6 +72,7 @@ describe.sequential('operational V1 invariants', () => {
     if (memberId) {
       await db.delete(memberTrainerAssignments).where(eq(memberTrainerAssignments.memberId, memberId))
       await db.delete(bookings).where(eq(bookings.memberId, memberId))
+      await db.delete(membershipActions).where(eq(membershipActions.memberId, memberId))
       await db.delete(payments).where(eq(payments.memberId, memberId))
       await db.delete(memberAccounts).where(eq(memberAccounts.memberId, memberId))
       await db.delete(auditLogs).where(eq(auditLogs.actorMemberId, memberId))
@@ -117,6 +119,76 @@ describe.sequential('operational V1 invariants', () => {
     const db = getDb()
     const rows = await db.select().from(payments).where(eq(payments.idempotencyKey, idempotencyKey))
     expect(rows).toHaveLength(1)
+  })
+
+  it('commits a paid renewal and receipt atomically and only once', async () => {
+    const db = getDb()
+    const [before] = await db
+      .select({ expireDate: members.expireDate })
+      .from(members)
+      .where(eq(members.id, memberId))
+      .limit(1)
+    expect(before).toBeTruthy()
+
+    const idempotencyKey = `ops-renew-${stamp}`
+    const payload = {
+      memberId,
+      packageName: 'Standard',
+      amount: 350000,
+      status: 'Paid',
+      paymentMethod: 'Cash',
+      membershipAction: 'renew',
+      idempotencyKey,
+    }
+    const first = await app.request('/api/payments', {
+      method: 'POST',
+      headers: auth(ownerToken),
+      body: JSON.stringify(payload),
+    })
+    expect(first.status).toBe(200)
+    const firstPayment = ((await first.json()) as any).data
+    expect(firstPayment.membershipAction).toBe('renew')
+    expect(firstPayment.receiptNo).toMatch(/^RCPT-\d+$/)
+
+    const [afterFirst] = await db
+      .select({ expireDate: members.expireDate })
+      .from(members)
+      .where(eq(members.id, memberId))
+      .limit(1)
+    expect(String(afterFirst?.expireDate)).not.toBe(String(before?.expireDate))
+
+    const retry = await app.request('/api/payments', {
+      method: 'POST',
+      headers: auth(ownerToken),
+      body: JSON.stringify(payload),
+    })
+    expect(retry.status).toBe(200)
+    expect(((await retry.json()) as any).data.id).toBe(firstPayment.id)
+
+    const [afterRetry] = await db
+      .select({ expireDate: members.expireDate })
+      .from(members)
+      .where(eq(members.id, memberId))
+      .limit(1)
+    expect(String(afterRetry?.expireDate)).toBe(String(afterFirst?.expireDate))
+
+    const reusedForDifferentAmount = await app.request('/api/payments', {
+      method: 'POST',
+      headers: auth(ownerToken),
+      body: JSON.stringify({ ...payload, amount: 350001 }),
+    })
+    expect(reusedForDifferentAmount.status).toBe(409)
+
+    const unpaidAction = await app.request('/api/payments', {
+      method: 'POST',
+      headers: auth(ownerToken),
+      body: JSON.stringify({
+        ...payload,
+        idempotencyKey: `${idempotencyKey}-pending`,
+        status: 'Pending',
+      }),
+    })
+    expect(unpaidAction.status).toBe(400)
   })
 
   it('assigns a trainer and rejects overlapping member booking', async () => {

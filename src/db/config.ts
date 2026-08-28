@@ -59,6 +59,12 @@ export function createTiDBConnection(includeDatabase = true): Connection {
   return connect(getConnectConfig(includeDatabase))
 }
 
+export function createTiDBConnectionForDatabase(database: string): Connection {
+  const safeDatabase = database.replace(/[^A-Za-z0-9_]/g, '')
+  if (!safeDatabase) throw new Error('Invalid database name')
+  return connect({ ...getConnectConfig(false), database: safeDatabase })
+}
+
 export function getDatabaseTargetLabel(includeDatabase = true) {
   const config = getConnectConfig(includeDatabase)
 

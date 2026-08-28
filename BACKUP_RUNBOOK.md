@@ -44,6 +44,18 @@ npm run db:backup:verify
 
 Verification authenticates/decrypts the envelope and checks that the payload/table structure is valid. It does not modify TiDB.
 
+## Restore rehearsal
+
+Before a release that changes the database or recovery tooling, run:
+
+```bash
+npm run db:restore:rehearsal
+```
+
+The rehearsal decrypts the latest verified backup, creates a temporary database whose name begins with `elite_gym_restore_rehearsal_`, applies every known migration, restores all backup rows, compares row counts, verifies migration history, and drops the temporary database in a `finally` block. It refuses to drop a database outside that fixed rehearsal prefix.
+
+This is the required proof that the encrypted backup can be restored without writing over `elite_gym`.
+
 ## Recovery procedure
 
 1. Stop business mutations or place the app in maintenance mode.

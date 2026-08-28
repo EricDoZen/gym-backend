@@ -42,6 +42,7 @@ export const staffUsers = mysqlTable(
     isActive: boolean('is_active').notNull().default(true),
     passwordChangedAt: timestamp('password_changed_at'),
     lastLoginAt: timestamp('last_login_at'),
+    tokenVersion: int('token_version').notNull().default(0),
     createdAt: timestamp('created_at').notNull().defaultNow(),
     updatedAt: timestamp('updated_at').notNull().defaultNow().onUpdateNow(),
   },
@@ -101,6 +102,7 @@ export const memberAccounts = mysqlTable(
     isActive: boolean('is_active').notNull().default(true),
     activatedAt: timestamp('activated_at').notNull().defaultNow(),
     lastLoginAt: timestamp('last_login_at'),
+    tokenVersion: int('token_version').notNull().default(0),
     passwordChangedAt: timestamp('password_changed_at'),
     createdAt: timestamp('created_at').notNull().defaultNow(),
     updatedAt: timestamp('updated_at').notNull().defaultNow().onUpdateNow(),
@@ -140,6 +142,7 @@ export const payments = mysqlTable(
     referenceNo: varchar('reference_no', { length: 100 }),
     receiptNo: varchar('receipt_no', { length: 50 }),
     idempotencyKey: varchar('idempotency_key', { length: 100 }),
+    membershipAction: varchar('membership_action', { length: 20 }),
     paymentDate: date('payment_date').notNull(),
     createdByStaffId: bigint('created_by_staff_id', { mode: 'number' }),
     createdAt: timestamp('created_at').notNull().defaultNow(),
@@ -205,19 +208,26 @@ export const memberTrainerAssignments = mysqlTable(
   }),
 )
 
-export const memberRequests = mysqlTable('member_requests', {
-  id: bigint('id', { mode: 'number' }).primaryKey().autoincrement(),
-  memberId: bigint('member_id', { mode: 'number' }).notNull(),
-  requestType: mysqlEnum('request_type', ['freeze', 'renew', 'upgrade']).notNull(),
-  requestedPackage: varchar('requested_package', { length: 100 }),
-  status: mysqlEnum('status', ['Pending', 'Approved', 'Rejected'])
-    .notNull()
-    .default('Pending'),
-  notes: varchar('notes', { length: 500 }),
-  createdAt: timestamp('created_at').notNull().defaultNow(),
-  resolvedAt: timestamp('resolved_at'),
-  resolvedByStaffId: bigint('resolved_by_staff_id', { mode: 'number' }),
-})
+export const memberRequests = mysqlTable(
+  'member_requests',
+  {
+    id: bigint('id', { mode: 'number' }).primaryKey().autoincrement(),
+    memberId: bigint('member_id', { mode: 'number' }).notNull(),
+    requestType: mysqlEnum('request_type', ['freeze', 'renew', 'upgrade']).notNull(),
+    requestedPackage: varchar('requested_package', { length: 100 }),
+    status: mysqlEnum('status', ['Pending', 'Approved', 'Rejected'])
+      .notNull()
+      .default('Pending'),
+    pendingKey: varchar('pending_key', { length: 100 }),
+    notes: varchar('notes', { length: 500 }),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    resolvedAt: timestamp('resolved_at'),
+    resolvedByStaffId: bigint('resolved_by_staff_id', { mode: 'number' }),
+  },
+  (table) => ({
+    pendingUnique: uniqueIndex('uk_member_requests_pending').on(table.pendingKey),
+  }),
+)
 
 export const progressEntries = mysqlTable('progress_entries', {
   id: bigint('id', { mode: 'number' }).primaryKey().autoincrement(),

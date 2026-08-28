@@ -47,6 +47,7 @@ export function toPaymentDto(input: {
   paymentMethod?: string | null
   referenceNo?: string | null
   receiptNo?: string | null
+  membershipAction?: string | null
   paymentDate: Date | string
 }): PaymentDto {
   return {
@@ -59,6 +60,10 @@ export function toPaymentDto(input: {
     paymentMethod: input.paymentMethod ?? 'Cash',
     referenceNo: input.referenceNo ?? '',
     receiptNo: input.receiptNo ?? '',
+    membershipAction:
+      input.membershipAction === 'renew' || input.membershipAction === 'upgrade'
+        ? input.membershipAction
+        : '',
     date: formatDisplayDate(input.paymentDate),
   }
 }

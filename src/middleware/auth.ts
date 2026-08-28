@@ -45,6 +45,9 @@ export const authMiddleware = createMiddleware<AuthContext>(async (c, next) => {
     .limit(1)
 
   if (!user || !user.isActive) httpError(401, 'Invalid or inactive user')
+  if (Number(payload.ver) !== user.tokenVersion) {
+    httpError(401, 'Session was revoked; please sign in again')
+  }
 
   c.set('user', {
     id: user.id,

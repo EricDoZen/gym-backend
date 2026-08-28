@@ -2,7 +2,7 @@ export const openApiDoc = {
   openapi: '3.0.3',
   info: {
     title: 'Elite Myanmar Gym API',
-    version: '1.0.0',
+    version: '1.0.1',
     description:
       'Production V1 REST API for Elite Myanmar gym management. Staff and member portal JWTs are intentionally separated.',
   },
@@ -170,6 +170,11 @@ export const openApiDoc = {
           paymentMethod: { type: 'string' },
           referenceNo: { type: 'string', nullable: true },
           receiptNo: { type: 'string', nullable: true, example: 'RCPT-12345' },
+          membershipAction: {
+            type: 'string',
+            enum: ['renew', 'upgrade', ''],
+            description: 'Membership change committed atomically with this paid receipt, when requested',
+          },
         },
       },
       CreatePaymentRequest: {
@@ -188,6 +193,11 @@ export const openApiDoc = {
           paymentMethod: { type: 'string', default: 'Cash' },
           referenceNo: { type: 'string' },
           idempotencyKey: { type: 'string', description: 'Unique client-generated key used to safely retry payment creation' },
+          membershipAction: {
+            type: 'string',
+            enum: ['renew', 'upgrade'],
+            description: 'Optional. Requires status=Paid. Receipt and membership change are committed in one transaction.',
+          },
         },
       },
       ContactRequest: {

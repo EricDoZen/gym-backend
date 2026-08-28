@@ -1,7 +1,7 @@
 {
   "name": "gym-backend",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.1",
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
@@ -13,6 +13,8 @@
     "db:seed": "tsx scripts/seed.ts",
     "db:backup": "tsx scripts/backup.ts",
     "db:backup:verify": "tsx scripts/backup-verify.ts",
+    "db:restore:rehearsal": "tsx scripts/restore-rehearsal.ts",
+    "release:preflight": "tsx scripts/release-preflight.ts",
     "e2e:reset-rate-limits": "tsx scripts/reset-local-rate-limits.ts",
     "e2e:cleanup": "tsx scripts/cleanup-e2e.ts",
     "setup": "npm run db:check && npm run db:migrate && npm run db:seed"

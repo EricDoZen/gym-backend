@@ -6,6 +6,7 @@ import { getInsertId } from '../lib/insert-id.js'
 import { toPaymentDto } from '../lib/mappers.js'
 import { normalizePackageName } from '../lib/member-code.js'
 import { httpError } from '../middleware/error.js'
+import { performMemberActionInDb } from './member.service.js'
 
 const paymentSelect = {
   id: payments.id,
@@ -17,6 +18,7 @@ const paymentSelect = {
   paymentMethod: payments.paymentMethod,
   referenceNo: payments.referenceNo,
   receiptNo: payments.receiptNo,
+  membershipAction: payments.membershipAction,
   paymentDate: payments.paymentDate,
 }
 
@@ -49,7 +51,9 @@ export async function getPaymentById(id: number) {
   return toPaymentDto(row)
 }
 
-export async function createPayment(input: {
+type MembershipPaymentAction = 'renew' | 'upgrade'
+
+type CreatePaymentInput = {
   memberId: number
   packageName: string
   amount: number
@@ -57,24 +61,44 @@ export async function createPayment(input: {
   paymentMethod?: string
   referenceNo?: string
   idempotencyKey: string
+  membershipAction?: MembershipPaymentAction
   paymentDate?: string
   createdByStaffId: number
-}) {
+}
+
+function assertSameIdempotentPayment(
+  existing: typeof payments.$inferSelect,
+  input: CreatePaymentInput,
+  normalizedPackage: string,
+) {
+  const same =
+    existing.memberId === input.memberId &&
+    existing.packageName === normalizedPackage &&
+    Number(existing.amountMmk) === input.amount &&
+    existing.status === input.status &&
+    (existing.membershipAction ?? null) === (input.membershipAction ?? null)
+  if (!same) {
+    httpError(409, 'Idempotency key was already used for a different payment')
+  }
+}
+
+export async function createPayment(input: CreatePaymentInput) {
   const db = getDb()
+  const normalizedPackage = normalizePackageName(input.packageName)
+
+  if (input.membershipAction && input.status !== 'Paid') {
+    httpError(400, 'Membership changes can only be applied to paid payments')
+  }
 
   const [existing] = await db
-    .select({ id: payments.id })
+    .select()
     .from(payments)
     .where(eq(payments.idempotencyKey, input.idempotencyKey))
     .limit(1)
-  if (existing) return getPaymentById(existing.id)
-
-  const [member] = await db
-    .select()
-    .from(members)
-    .where(eq(members.id, input.memberId))
-    .limit(1)
-  if (!member) httpError(404, 'Member not found')
+  if (existing) {
+    assertSameIdempotentPayment(existing, input, normalizedPackage)
+    return getPaymentById(existing.id)
+  }
 
   const paymentDate = input.paymentDate
     ? toSqlDate(parseFlexibleDate(input.paymentDate))
@@ -82,32 +106,57 @@ export async function createPayment(input: {
 
   let insertedId = 0
   try {
-    const result = await db.insert(payments).values({
-      memberId: input.memberId,
-      packageName: normalizePackageName(input.packageName),
-      amountMmk: input.amount,
-      status: input.status,
-      paymentMethod: input.paymentMethod?.trim() || 'Cash',
-      referenceNo: input.referenceNo?.trim() || null,
-      idempotencyKey: input.idempotencyKey,
-      paymentDate,
-      createdByStaffId: input.createdByStaffId,
+    insertedId = await db.transaction(async (tx) => {
+      const [member] = await tx
+        .select()
+        .from(members)
+        .where(eq(members.id, input.memberId))
+        .limit(1)
+      if (!member) httpError(404, 'Member not found')
+
+      if (input.membershipAction === 'renew' && member.packageName !== normalizedPackage) {
+        httpError(400, 'Renewal payment package must match the current membership package')
+      }
+
+      const result = await tx.insert(payments).values({
+        memberId: input.memberId,
+        packageName: normalizedPackage,
+        amountMmk: input.amount,
+        status: input.status,
+        paymentMethod: input.paymentMethod?.trim() || 'Cash',
+        referenceNo: input.referenceNo?.trim() || null,
+        idempotencyKey: input.idempotencyKey,
+        membershipAction: input.membershipAction ?? null,
+        paymentDate,
+        createdByStaffId: input.createdByStaffId,
+      })
+      const id = getInsertId(result)
+      const receiptNo = `RCPT-${String(id).padStart(8, '0')}`
+      await tx.update(payments).set({ receiptNo }).where(eq(payments.id, id))
+
+      if (input.membershipAction === 'renew') {
+        await performMemberActionInDb(tx, input.memberId, 'renew')
+      } else if (input.membershipAction === 'upgrade') {
+        await performMemberActionInDb(tx, input.memberId, 'upgrade', normalizedPackage)
+      }
+
+      return id
     })
-    insertedId = getInsertId(result)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     if (/uk_payments_idempotency|idempotency/i.test(message)) {
       const [row] = await db
-        .select({ id: payments.id })
+        .select()
         .from(payments)
         .where(eq(payments.idempotencyKey, input.idempotencyKey))
         .limit(1)
-      if (row) return getPaymentById(row.id)
+      if (row) {
+        assertSameIdempotentPayment(row, input, normalizedPackage)
+        return getPaymentById(row.id)
+      }
     }
     throw error
   }
 
-  const receiptNo = `RCPT-${String(insertedId).padStart(8, '0')}`
-  await db.update(payments).set({ receiptNo }).where(eq(payments.id, insertedId))
   return getPaymentById(insertedId)
 }

@@ -43,6 +43,7 @@ export interface PaymentDto {
   paymentMethod: string
   referenceNo: string
   receiptNo: string
+  membershipAction: 'renew' | 'upgrade' | ''
   date: string
 }
 
