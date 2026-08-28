@@ -2,11 +2,14 @@ export const openApiDoc = {
   openapi: '3.0.3',
   info: {
     title: 'Elite Myanmar Gym API',
-    version: '0.1.0',
+    version: '1.0.0',
     description:
-      'REST API for Elite Myanmar gym management. Authenticated routes require a JWT from `POST /api/auth/login`.',
+      'Production V1 REST API for Elite Myanmar gym management. Staff and member portal JWTs are intentionally separated.',
   },
-  servers: [{ url: 'http://localhost:8787', description: 'Local development' }],
+  servers: [
+    { url: 'https://gym-backend-wheat.vercel.app', description: 'Production' },
+    { url: 'http://localhost:8787', description: 'Local development' },
+  ],
   tags: [
     { name: 'Health', description: 'Service health checks' },
     { name: 'Auth', description: 'Staff authentication' },
@@ -15,6 +18,11 @@ export const openApiDoc = {
     { name: 'Trials', description: 'Trial registrations' },
     { name: 'Payments', description: 'Payment records' },
     { name: 'Contact', description: 'Public contact form' },
+    { name: 'Member Auth', description: 'Member portal activation and authentication' },
+    { name: 'Member Portal', description: 'Member-owned booking, progress, workout and requests' },
+    { name: 'Trainers', description: 'Trainer management' },
+    { name: 'Fitness Ops', description: 'Staff fitness operations and request approvals' },
+    { name: 'Operations', description: 'Readiness and owner-only audit logs' },
   ],
   components: {
     securitySchemes: {
@@ -22,7 +30,13 @@ export const openApiDoc = {
         type: 'http',
         scheme: 'bearer',
         bearerFormat: 'JWT',
-        description: 'JWT from POST /api/auth/login',
+        description: 'Staff JWT from POST /api/auth/login',
+      },
+      memberBearerAuth: {
+        type: 'http',
+        scheme: 'bearer',
+        bearerFormat: 'JWT',
+        description: 'Member JWT from POST /api/member-auth/login',
       },
     },
     schemas: {
@@ -39,7 +53,7 @@ export const openApiDoc = {
         required: ['email', 'password'],
         properties: {
           email: { type: 'string', format: 'email', example: 'owner@elite.mm' },
-          password: { type: 'string', example: 'owner123' },
+          password: { type: 'string', format: 'password', description: 'Staff password configured outside source control' },
         },
       },
       LoginResponse: {
@@ -153,6 +167,9 @@ export const openApiDoc = {
             enum: ['Paid', 'Pending', 'Overdue'],
           },
           date: { type: 'string' },
+          paymentMethod: { type: 'string' },
+          referenceNo: { type: 'string', nullable: true },
+          receiptNo: { type: 'string', nullable: true, example: 'RCPT-12345' },
         },
       },
       CreatePaymentRequest: {
@@ -168,6 +185,9 @@ export const openApiDoc = {
             default: 'Paid',
           },
           paymentDate: { type: 'string' },
+          paymentMethod: { type: 'string', default: 'Cash' },
+          referenceNo: { type: 'string' },
+          idempotencyKey: { type: 'string', description: 'Unique client-generated key used to safely retry payment creation' },
         },
       },
       ContactRequest: {
@@ -230,6 +250,16 @@ export const openApiDoc = {
               },
             },
           },
+        },
+      },
+    },
+    '/ready': {
+      get: {
+        tags: ['Operations'],
+        summary: 'Readiness check; requires a reachable configured database',
+        responses: {
+          '200': { description: 'Service is ready' },
+          '503': { description: 'Service or database is not ready' },
         },
       },
     },
@@ -298,6 +328,46 @@ export const openApiDoc = {
             },
           },
         },
+      },
+    },
+    '/api/auth/change-password': {
+      post: {
+        tags: ['Auth'],
+        summary: 'Change the authenticated staff password',
+        security: [{ bearerAuth: [] }],
+        responses: { '200': { description: 'Password changed' }, '401': { description: 'Unauthorized or current password invalid' } },
+      },
+    },
+    '/api/auth/staff': {
+      get: {
+        tags: ['Auth'],
+        summary: 'List staff accounts (owner only)',
+        security: [{ bearerAuth: [] }],
+        responses: { '200': { description: 'Staff list' }, '403': { description: 'Owner role required' } },
+      },
+      post: {
+        tags: ['Auth'],
+        summary: 'Create staff account (owner only)',
+        security: [{ bearerAuth: [] }],
+        responses: { '201': { description: 'Staff account created' }, '403': { description: 'Owner role required' }, '409': { description: 'Email already exists' } },
+      },
+    },
+    '/api/auth/staff/{id}': {
+      patch: {
+        tags: ['Auth'],
+        summary: 'Update or enable/disable a staff account (owner only; last owner is protected)',
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }],
+        responses: { '200': { description: 'Staff account updated' }, '403': { description: 'Owner role required' }, '409': { description: 'Protected last owner or duplicate email' } },
+      },
+    },
+    '/api/auth/staff/{id}/reset-password': {
+      post: {
+        tags: ['Auth'],
+        summary: 'Reset a staff password (owner only)',
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }],
+        responses: { '200': { description: 'Password reset' }, '403': { description: 'Owner role required' } },
       },
     },
     '/api/dashboard': {
@@ -677,6 +747,57 @@ export const openApiDoc = {
           },
         },
       },
+    },
+    '/api/member-auth/activate': {
+      post: { tags: ['Member Auth'], summary: 'Activate a member portal account using member code + registered phone', responses: { '201': { description: 'Portal activated' }, '409': { description: 'Already activated' } } },
+    },
+    '/api/member-auth/login': {
+      post: { tags: ['Member Auth'], summary: 'Member portal login', responses: { '200': { description: 'Member JWT + member profile' }, '401': { description: 'Invalid credentials' } } },
+    },
+    '/api/member-auth/me': {
+      get: { tags: ['Member Auth'], summary: 'Current authenticated member', security: [{ memberBearerAuth: [] }], responses: { '200': { description: 'Member profile' }, '401': { description: 'Unauthorized' } } },
+    },
+    '/api/member-auth/change-password': {
+      post: { tags: ['Member Auth'], summary: 'Change member portal password', security: [{ memberBearerAuth: [] }], responses: { '200': { description: 'Password changed' } } },
+    },
+    '/api/trainers': {
+      get: { tags: ['Trainers'], summary: 'List trainers', security: [{ bearerAuth: [] }], responses: { '200': { description: 'Trainer list' } } },
+      post: { tags: ['Trainers'], summary: 'Create trainer (owner only)', security: [{ bearerAuth: [] }], responses: { '201': { description: 'Trainer created' }, '403': { description: 'Owner role required' } } },
+    },
+    '/api/trainers/{id}': {
+      patch: { tags: ['Trainers'], summary: 'Update/enable/disable trainer (owner only)', security: [{ bearerAuth: [] }], parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }], responses: { '200': { description: 'Trainer updated' } } },
+    },
+    '/api/portal/bookings': {
+      get: { tags: ['Member Portal'], summary: 'List authenticated member bookings', security: [{ memberBearerAuth: [] }], responses: { '200': { description: 'Booking list' } } },
+      post: { tags: ['Member Portal'], summary: 'Book a session; rejects member/trainer time collisions', security: [{ memberBearerAuth: [] }], responses: { '201': { description: 'Session booked' }, '409': { description: 'Booking conflict or membership unavailable' } } },
+    },
+    '/api/portal/progress': {
+      get: { tags: ['Member Portal'], summary: 'Authenticated member progress history', security: [{ memberBearerAuth: [] }], responses: { '200': { description: 'Progress history' } } },
+    },
+    '/api/portal/workout': {
+      get: { tags: ['Member Portal'], summary: 'Authenticated member active workout plan', security: [{ memberBearerAuth: [] }], responses: { '200': { description: 'Active plan or null' } } },
+    },
+    '/api/portal/requests': {
+      get: { tags: ['Member Portal'], summary: 'Member membership-request history', security: [{ memberBearerAuth: [] }], responses: { '200': { description: 'Request history' } } },
+      post: { tags: ['Member Portal'], summary: 'Submit freeze/renew/upgrade request for staff approval', security: [{ memberBearerAuth: [] }], responses: { '201': { description: 'Request submitted' }, '409': { description: 'Matching request already pending' } } },
+    },
+    '/api/fitness/requests': {
+      get: { tags: ['Fitness Ops'], summary: 'List pending member requests', security: [{ bearerAuth: [] }], responses: { '200': { description: 'Pending requests' } } },
+    },
+    '/api/fitness/requests/{id}/resolve': {
+      post: { tags: ['Fitness Ops'], summary: 'Approve or reject a pending member request transactionally', security: [{ bearerAuth: [] }], parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }], responses: { '200': { description: 'Request resolved' }, '404': { description: 'Pending request not found/already resolved' } } },
+    },
+    '/api/fitness/members/{id}/progress': {
+      post: { tags: ['Fitness Ops'], summary: 'Record member body progress', security: [{ bearerAuth: [] }], parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }], responses: { '201': { description: 'Progress recorded' } } },
+    },
+    '/api/fitness/members/{id}/workout': {
+      put: { tags: ['Fitness Ops'], summary: 'Publish active workout plan for member', security: [{ bearerAuth: [] }], parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }], responses: { '200': { description: 'Workout plan saved' } } },
+    },
+    '/api/fitness/members/{id}/trainer': {
+      put: { tags: ['Fitness Ops'], summary: 'Assign active trainer to member', security: [{ bearerAuth: [] }], parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }], responses: { '200': { description: 'Trainer assignment saved' } } },
+    },
+    '/api/ops/audit': {
+      get: { tags: ['Operations'], summary: 'Owner-only audit log', security: [{ bearerAuth: [] }], responses: { '200': { description: 'Audit records' }, '403': { description: 'Owner role required' } } },
     },
     '/api/contact': {
       post: {

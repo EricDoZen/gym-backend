@@ -1,0 +1,21 @@
+name: Production Health
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '*/15 * * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check backend health
+        run: curl --fail --silent --show-error --retry 2 --max-time 20 https://gym-backend-wheat.vercel.app/health
+      - name: Check backend readiness
+        run: curl --fail --silent --show-error --retry 2 --max-time 20 https://gym-backend-wheat.vercel.app/ready
+      - name: Check frontend
+        run: curl --fail --silent --show-error --retry 2 --max-time 20 https://gym-frontend-three-psi.vercel.app/ > /dev/null

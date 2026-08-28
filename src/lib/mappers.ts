@@ -44,6 +44,9 @@ export function toPaymentDto(input: {
   packageName: string
   amountMmk: number
   status: 'Paid' | 'Pending' | 'Overdue'
+  paymentMethod?: string | null
+  referenceNo?: string | null
+  receiptNo?: string | null
   paymentDate: Date | string
 }): PaymentDto {
   return {
@@ -53,6 +56,9 @@ export function toPaymentDto(input: {
     package: input.packageName,
     amount: input.amountMmk,
     status: input.status,
+    paymentMethod: input.paymentMethod ?? 'Cash',
+    referenceNo: input.referenceNo ?? '',
+    receiptNo: input.receiptNo ?? '',
     date: formatDisplayDate(input.paymentDate),
   }
 }

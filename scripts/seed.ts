@@ -76,6 +76,18 @@ async function main() {
     process.exit(1)
   }
 
+  const seedPasswords = [env.SEED_OWNER_PASSWORD, env.SEED_RECEPTION_PASSWORD]
+  if (
+    seedPasswords.some(
+      (value) => !value || value.length < 10 || !/[A-Za-z]/.test(value) || !/\d/.test(value),
+    )
+  ) {
+    console.error(
+      'SEED_OWNER_PASSWORD and SEED_RECEPTION_PASSWORD must be at least 10 characters and contain letters and numbers for first-time seeding',
+    )
+    process.exit(1)
+  }
+
   const db = getDb()
   const [staffCount] = await db.select({ total: count() }).from(staffUsers)
   if ((staffCount?.total ?? 0) > 0) {

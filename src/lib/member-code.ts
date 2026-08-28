@@ -1,9 +1,13 @@
-import { desc, sql } from 'drizzle-orm'
+import { desc } from 'drizzle-orm'
 import { getDb } from '../db/client.js'
 import { members } from '../db/schema.js'
 
-export async function generateMemberCode() {
-  const db = getDb()
+type DbClient = ReturnType<typeof getDb>
+type DbTransaction = Parameters<Parameters<DbClient['transaction']>[0]>[0]
+export type DbExecutor = DbClient | DbTransaction
+
+export async function generateMemberCode(dbOverride?: DbExecutor) {
+  const db = dbOverride ?? getDb()
   const [latest] = await db
     .select({ memberCode: members.memberCode })
     .from(members)

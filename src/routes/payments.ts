@@ -3,30 +3,49 @@ import { z } from 'zod'
 import type { AuthContext } from '../middleware/auth.js'
 import { authMiddleware, requireRole } from '../middleware/auth.js'
 import { ok } from '../lib/response.js'
-import { createPayment, listPayments } from '../services/payment.service.js'
+import { getClientIp } from '../lib/request.js'
+import { recordAudit } from '../services/audit.service.js'
+import { createPayment, getPaymentById, listPayments } from '../services/payment.service.js'
 
+const paymentIdSchema = z.coerce.number().int().positive()
 const createPaymentSchema = z.object({
-  memberId: z.union([z.string(), z.number()]),
-  packageName: z.string().min(1),
-  amount: z.number().positive(),
+  memberId: z.coerce.number().int().positive(),
+  packageName: z.string().trim().min(1).max(100),
+  amount: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
   status: z.enum(['Paid', 'Pending', 'Overdue']).default('Paid'),
-  paymentDate: z.string().optional(),
+  paymentMethod: z.string().trim().min(1).max(50).default('Cash'),
+  referenceNo: z.string().trim().max(100).optional(),
+  idempotencyKey: z.string().trim().min(8).max(100),
+  paymentDate: z
+    .string()
+    .trim()
+    .optional()
+    .refine((value) => !value || !Number.isNaN(Date.parse(value)), 'Invalid payment date'),
 })
 
 export const paymentRoutes = new Hono<AuthContext>()
   .get('/', authMiddleware, async (c) => {
-    const status = c.req.query('status')
-    const items = await listPayments(status)
-    return c.json(ok(items, 'success'))
+    const status = z
+      .enum(['Paid', 'Pending', 'Overdue', 'all'])
+      .optional()
+      .parse(c.req.query('status'))
+    return c.json(ok(await listPayments(status), 'success'))
+  })
+  .get('/:id', authMiddleware, async (c) => {
+    const id = paymentIdSchema.parse(c.req.param('id'))
+    return c.json(ok(await getPaymentById(id), 'success'))
   })
   .post('/', authMiddleware, requireRole('owner'), async (c) => {
+    const user = c.get('user')
     const body = createPaymentSchema.parse(await c.req.json())
-    const payment = await createPayment({
-      memberId: Number(body.memberId),
-      packageName: body.packageName,
-      amount: body.amount,
-      status: body.status,
-      paymentDate: body.paymentDate,
+    const payment = await createPayment({ ...body, createdByStaffId: user.id })
+    await recordAudit({
+      actorStaffId: user.id,
+      action: 'payment.create',
+      entityType: 'payment',
+      entityId: payment.id,
+      ipAddress: getClientIp(c),
+      metadata: { memberId: payment.memberId, amount: payment.amount, status: payment.status },
     })
     return c.json(ok(payment, 'Payment recorded'))
   })

@@ -40,6 +40,9 @@ export interface PaymentDto {
   package: string
   amount: number
   status: 'Paid' | 'Pending' | 'Overdue'
+  paymentMethod: string
+  referenceNo: string
+  receiptNo: string
   date: string
 }
 

@@ -15,10 +15,11 @@ import {
   checkins,
   members,
   membershipActions,
+  membershipPackages,
   payments,
 } from '../db/schema.js'
 import {
-  addYears,
+  addDays,
   formatDisplayDate,
   parseFlexibleDate,
   toSqlDate,
@@ -27,14 +28,23 @@ import { toCheckinDto, toMemberDto } from '../lib/mappers.js'
 import {
   generateMemberCode,
   normalizePackageName,
+  packageCodeFromName,
+  type DbExecutor,
 } from '../lib/member-code.js'
 import type { DashboardStatsDto } from '../lib/types.js'
 import { getInsertId } from '../lib/insert-id.js'
 import { httpError } from '../middleware/error.js'
+import { normalizePhone } from '../lib/phone.js'
+
+function startOfToday() {
+  const date = new Date()
+  date.setHours(0, 0, 0, 0)
+  return date
+}
 
 export async function listMembers(options: {
   q?: string
-  status?: string
+  status?: 'Active' | 'Expired' | 'Trial' | 'Frozen'
   page?: number
   pageSize?: number
   sort?: 'name' | 'joinDate' | 'status'
@@ -56,13 +66,8 @@ export async function listMembers(options: {
       ),
     )
   }
-  if (options.status && ['Active', 'Expired', 'Trial', 'Frozen'].includes(options.status)) {
-    filters.push(
-      eq(
-        members.status,
-        options.status as 'Active' | 'Expired' | 'Trial' | 'Frozen',
-      ),
-    )
+  if (options.status) {
+    filters.push(eq(members.status, options.status))
   }
 
   const whereClause = filters.length ? and(...filters) : undefined
@@ -86,56 +91,130 @@ export async function listMembers(options: {
     .from(members)
     .where(whereClause)
 
+  const today = startOfToday()
   return {
-    items: rows.map((row) => toMemberDto(row)),
+    items: rows.map((row) =>
+      toMemberDto({
+        ...row,
+        status:
+          row.status === 'Active' && new Date(row.expireDate) < today
+            ? 'Expired'
+            : row.status,
+      }),
+    ),
     total: totalRow?.total ?? 0,
     page,
     pageSize,
   }
 }
 
-export async function getMemberById(id: number) {
-  const db = getDb()
-  const [row] = await db.select().from(members).where(eq(members.id, id)).limit(1)
-  if (!row) httpError(404, 'Member not found')
-  return toMemberDto(row)
-}
-
-export async function createMember(input: {
+type CreateMemberInput = {
   name: string
-  phone?: string
+  phone: string
   email?: string
   package?: string
   avatar?: string
-}) {
-  const db = getDb()
-  const memberCode = await generateMemberCode()
-  const packageName = normalizePackageName(input.package ?? 'Standard')
-  const joinDate = new Date()
-  const expireDate = addYears(joinDate, 1)
-
-  const result = await db.insert(members).values({
-    memberCode,
-    fullName: input.name.trim(),
-    phone: input.phone?.trim() || '+95 9 000 000 000',
-    email: input.email?.trim() || 'member@email.com',
-    packageName,
-    status: 'Active',
-    joinDate: toSqlDate(joinDate),
-    expireDate: toSqlDate(expireDate),
-    attendanceCount: 0,
-    avatarUrl: input.avatar ?? '/images/img-1352436804.jpg',
-  })
-
-  const insertedId = getInsertId(result)
-  return getMemberById(insertedId)
 }
 
-export async function performMemberAction(
+async function getMemberByIdFromDb(db: DbExecutor, id: number) {
+  const [row] = await db.select().from(members).where(eq(members.id, id)).limit(1)
+  if (!row) httpError(404, 'Member not found')
+
+  const effectiveStatus =
+    row.status === 'Active' && new Date(row.expireDate) < startOfToday()
+      ? 'Expired'
+      : row.status
+  return toMemberDto({ ...row, status: effectiveStatus })
+}
+
+export async function getMemberById(id: number) {
+  return getMemberByIdFromDb(getDb(), id)
+}
+
+function duplicateConstraintName(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error)
+  if (!/duplicate/i.test(message)) return null
+  if (/uk_member_phone/i.test(message)) return 'phone'
+  if (/uk_member_email/i.test(message)) return 'email'
+  if (/uk_member_code/i.test(message)) return 'code'
+  return 'unknown'
+}
+
+export async function createMemberInDb(db: DbExecutor, input: CreateMemberInput) {
+  const packageName = normalizePackageName(input.package ?? 'Standard')
+  const [membershipPackage] = await db
+    .select()
+    .from(membershipPackages)
+    .where(eq(membershipPackages.code, packageCodeFromName(packageName)))
+    .limit(1)
+  if (!membershipPackage || !membershipPackage.isActive) {
+    httpError(400, 'Invalid or inactive membership package')
+  }
+
+  const joinDate = new Date()
+  const expireDate = addDays(joinDate, membershipPackage.durationDays)
+  const phone = normalizePhone(input.phone)
+  const email = input.email?.trim().toLowerCase() || null
+
+  const [phoneMatch] = await db
+    .select({ id: members.id })
+    .from(members)
+    .where(eq(members.phone, phone))
+    .limit(1)
+  if (phoneMatch) httpError(409, 'A member with this phone number already exists')
+
+  if (email) {
+    const [emailMatch] = await db
+      .select({ id: members.id })
+      .from(members)
+      .where(sql`LOWER(${members.email}) = ${email}`)
+      .limit(1)
+    if (emailMatch) httpError(409, 'A member with this email already exists')
+  }
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const memberCode = await generateMemberCode(db)
+    try {
+      const result = await db.insert(members).values({
+        memberCode,
+        fullName: input.name.trim(),
+        phone,
+        email,
+        packageId: membershipPackage.id,
+        packageName,
+        status: 'Active',
+        joinDate: toSqlDate(joinDate),
+        expireDate: toSqlDate(expireDate),
+        attendanceCount: 0,
+        avatarUrl: input.avatar ?? '/images/img-1352436804.jpg',
+      })
+      const insertedId = getInsertId(result)
+      return getMemberByIdFromDb(db, insertedId)
+    } catch (error) {
+      const duplicate = duplicateConstraintName(error)
+      if (duplicate === 'phone') {
+        httpError(409, 'A member with this phone number already exists')
+      }
+      if (duplicate === 'email') {
+        httpError(409, 'A member with this email already exists')
+      }
+      if (duplicate !== 'code' || attempt === 2) throw error
+    }
+  }
+
+  httpError(500, 'Failed to allocate a unique member code')
+}
+
+export async function createMember(input: CreateMemberInput) {
+  return createMemberInDb(getDb(), input)
+}
+
+export async function performMemberActionInDb(
+  db: DbExecutor,
   memberId: number,
   action: 'freeze' | 'renew' | 'upgrade' | 'booking',
+  targetPackage?: string,
 ) {
-  const db = getDb()
   const [member] = await db
     .select()
     .from(members)
@@ -143,7 +222,9 @@ export async function performMemberAction(
     .limit(1)
   if (!member) httpError(404, 'Member not found')
 
-  if (action === 'freeze') {
+  let notes: string | null = null
+
+  if (action === 'freeze' && member.status !== 'Frozen') {
     await db
       .update(members)
       .set({ status: 'Frozen' })
@@ -151,32 +232,75 @@ export async function performMemberAction(
   }
 
   if (action === 'renew') {
-    const expireDate = addYears(parseFlexibleDate(formatDisplayDate(member.expireDate)), 1)
+    const [membershipPackage] = await db
+      .select()
+      .from(membershipPackages)
+      .where(eq(membershipPackages.code, packageCodeFromName(member.packageName)))
+      .limit(1)
+    if (!membershipPackage || !membershipPackage.isActive) {
+      httpError(409, 'Membership package is no longer available')
+    }
+    const currentExpiry = parseFlexibleDate(formatDisplayDate(member.expireDate))
+    const today = startOfToday()
+    const baseDate = currentExpiry > today ? currentExpiry : today
+    const expireDate = addDays(baseDate, membershipPackage.durationDays)
     await db
       .update(members)
-      .set({ status: 'Active', expireDate: toSqlDate(expireDate) })
+      .set({
+        status: 'Active',
+        packageId: membershipPackage.id,
+        expireDate: toSqlDate(expireDate),
+      })
       .where(eq(members.id, memberId))
+  }
+
+  if (action === 'upgrade') {
+    if (!targetPackage) httpError(400, 'Package is required for upgrade')
+    const packageName = normalizePackageName(targetPackage)
+    const [membershipPackage] = await db
+      .select()
+      .from(membershipPackages)
+      .where(eq(membershipPackages.code, packageCodeFromName(packageName)))
+      .limit(1)
+    if (!membershipPackage || !membershipPackage.isActive) {
+      httpError(400, 'Invalid or inactive membership package')
+    }
+    if (packageName === member.packageName) {
+      httpError(409, 'Member is already on this package')
+    }
+    await db
+      .update(members)
+      .set({ packageId: membershipPackage.id, packageName })
+      .where(eq(members.id, memberId))
+    notes = `package=${packageName}`
   }
 
   await db.insert(membershipActions).values({
     memberId,
     action,
-    notes: null,
+    notes,
   })
 
-  return getMemberById(memberId)
+  return getMemberByIdFromDb(db, memberId)
+}
+
+export async function performMemberAction(
+  memberId: number,
+  action: 'freeze' | 'renew' | 'upgrade' | 'booking',
+  targetPackage?: string,
+) {
+  return performMemberActionInDb(getDb(), memberId, action, targetPackage)
 }
 
 export async function getDashboardStats(): Promise<DashboardStatsDto> {
   const db = getDb()
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
+  const today = startOfToday()
   const monthStart = new Date(today.getFullYear(), today.getMonth(), 1)
 
   const [memberCounts] = await db
     .select({
       totalMembers: count(),
-      activeMembers: sql<number>`SUM(CASE WHEN ${members.status} = 'Active' THEN 1 ELSE 0 END)`,
+      activeMembers: sql<number>`SUM(CASE WHEN ${members.status} = 'Active' AND ${members.expireDate} >= CURDATE() THEN 1 ELSE 0 END)`,
     })
     .from(members)
 

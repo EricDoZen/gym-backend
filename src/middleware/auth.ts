@@ -1,5 +1,5 @@
 import { createMiddleware } from 'hono/factory'
-import { jwtVerify } from 'jose'
+import { jwtVerify, type JWTPayload } from 'jose'
 import { eq } from 'drizzle-orm'
 import { getDb } from '../db/client.js'
 import { staffUsers } from '../db/schema.js'
@@ -20,31 +20,39 @@ export const authMiddleware = createMiddleware<AuthContext>(async (c, next) => {
   }
 
   const token = header.slice('Bearer '.length)
+  let payload: JWTPayload
   try {
     const secret = encoder.encode(env.JWT_SECRET)
-    const { payload } = await jwtVerify(token, secret)
-    const userId = Number(payload.sub)
-    if (!userId) httpError(401, 'Invalid token')
-
-    const db = getDb()
-    const [user] = await db
-      .select()
-      .from(staffUsers)
-      .where(eq(staffUsers.id, userId))
-      .limit(1)
-
-    if (!user || !user.isActive) httpError(401, 'Invalid or inactive user')
-
-    c.set('user', {
-      id: user.id,
-      email: user.email,
-      role: user.role,
-      name: user.fullName,
-    })
-    await next()
+    ;({ payload } = await jwtVerify(token, secret))
   } catch {
     httpError(401, 'Invalid or expired token')
   }
+
+  if (payload.kind !== 'staff') {
+    httpError(401, 'Invalid token type')
+  }
+
+  const userId = Number(payload.sub)
+  if (!Number.isInteger(userId) || userId <= 0) {
+    httpError(401, 'Invalid token')
+  }
+
+  const db = getDb()
+  const [user] = await db
+    .select()
+    .from(staffUsers)
+    .where(eq(staffUsers.id, userId))
+    .limit(1)
+
+  if (!user || !user.isActive) httpError(401, 'Invalid or inactive user')
+
+  c.set('user', {
+    id: user.id,
+    email: user.email,
+    role: user.role,
+    name: user.fullName,
+  })
+  await next()
 })
 
 export function requireRole(...roles: StaffRole[]) {
