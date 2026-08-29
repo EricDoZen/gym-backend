@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm audit --audit-level=high
+      - name: Run database-independent tests
+        run: npx vitest run tests/health.test.ts tests/docs.test.ts tests/rate-limit.test.ts
+      - name: Migration inventory
+        run: |
+          test -f src/db/migrations/0007_v1_1_operations.sql
+          test "$(find src/db/migrations -maxdepth 1 -name '*.sql' | wc -l)" -ge 7

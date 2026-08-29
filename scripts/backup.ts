@@ -12,18 +12,24 @@ const keyPath = join(rootDir, '.backup-key')
 const tables = [
   'staff_users',
   'membership_packages',
+  'membership_package_price_history',
   'members',
   'member_accounts',
   'trial_registrations',
   'checkins',
   'payments',
+  'payment_adjustments',
   'membership_actions',
   'trainers',
+  'trainer_weekly_availability',
+  'trainer_time_off',
   'member_trainer_assignments',
   'bookings',
   'member_requests',
   'progress_entries',
   'workout_plans',
+  'member_notes',
+  'notifications',
   'contact_messages',
   'audit_logs',
   'app_settings',
@@ -50,7 +56,16 @@ async function main() {
   const connection = createTiDBConnection(true)
   const data: Record<string, unknown> = {}
   for (const table of tables) {
-    data[table] = await connection.execute(`SELECT * FROM \`${table}\``)
+    try {
+      data[table] = await connection.execute(`SELECT * FROM \`${table}\``)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      if (/doesn't exist|does not exist|unknown table/i.test(message)) {
+        console.log(`skip missing table: ${table}`)
+        continue
+      }
+      throw error
+    }
   }
 
   const payload = Buffer.from(
@@ -77,7 +92,7 @@ async function main() {
   const output = join(backupDir, `elite-gym-${stamp}.egymbak`)
   writeFileSync(output, envelope)
   console.log(`Encrypted backup created: ${output}`)
-  console.log(`Tables: ${tables.length}; encrypted bytes: ${envelope.length}`)
+  console.log(`Tables: ${Object.keys(data).length}; encrypted bytes: ${envelope.length}`)
 }
 
 main().catch((error) => {

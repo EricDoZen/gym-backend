@@ -15,6 +15,7 @@ import { memberAuthRoutes } from './routes/member-auth.js'
 import { memberPortalRoutes } from './routes/member-portal.js'
 import { memberRoutes } from './routes/members.js'
 import { opsRoutes } from './routes/ops.js'
+import { packageRoutes } from './routes/packages.js'
 import { paymentRoutes } from './routes/payments.js'
 import { trainerRoutes } from './routes/trainers.js'
 import { trialRoutes } from './routes/trials.js'
@@ -99,6 +100,7 @@ api.route('/member-auth', memberAuthRoutes)
 api.route('/portal', memberPortalRoutes)
 api.route('/dashboard', dashboardRoutes)
 api.route('/members', memberRoutes)
+api.route('/packages', packageRoutes)
 api.route('/trials', trialRoutes)
 api.route('/payments', paymentRoutes)
 api.route('/trainers', trainerRoutes)

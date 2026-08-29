@@ -56,6 +56,26 @@ async function main() {
       connection,
       'SELECT r.id FROM member_requests r LEFT JOIN members m ON m.id = r.member_id WHERE m.id IS NULL',
     ),
+    orphanPackagePriceHistory: await duplicateGroups(
+      connection,
+      'SELECT h.id FROM membership_package_price_history h LEFT JOIN membership_packages p ON p.id = h.package_id WHERE p.id IS NULL',
+    ),
+    orphanPaymentAdjustments: await duplicateGroups(
+      connection,
+      'SELECT a.id FROM payment_adjustments a LEFT JOIN payments p ON p.id = a.payment_id WHERE p.id IS NULL',
+    ),
+    orphanTrainerAvailability: await duplicateGroups(
+      connection,
+      'SELECT a.id FROM trainer_weekly_availability a LEFT JOIN trainers t ON t.id = a.trainer_id WHERE t.id IS NULL',
+    ),
+    orphanTrainerTimeOff: await duplicateGroups(
+      connection,
+      'SELECT o.id FROM trainer_time_off o LEFT JOIN trainers t ON t.id = o.trainer_id WHERE t.id IS NULL',
+    ),
+    orphanMemberNotes: await duplicateGroups(
+      connection,
+      'SELECT n.id FROM member_notes n LEFT JOIN members m ON m.id = n.member_id WHERE m.id IS NULL',
+    ),
   }
 
   const failures = Object.entries(checks).filter(([, count]) => count > 0)

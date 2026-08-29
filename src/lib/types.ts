@@ -37,24 +37,45 @@ export interface PaymentDto {
   id: string
   memberId: string
   memberName: string
+  packageId: string
+  packageCode: string
   package: string
+  packagePriceMmk: number
   amount: number
   status: 'Paid' | 'Pending' | 'Overdue'
   paymentMethod: string
   referenceNo: string
   receiptNo: string
-  membershipAction: 'renew' | 'upgrade' | ''
+  membershipAction: 'renew' | 'upgrade' | 'downgrade' | ''
   date: string
 }
+
+export type StaffRole = 'owner' | 'manager' | 'reception' | 'trainer' | 'accountant'
+
+export type StaffPermission =
+  | 'member.read'
+  | 'member.write'
+  | 'member.checkin'
+  | 'member.notes'
+  | 'payment.read'
+  | 'payment.create'
+  | 'payment.adjust'
+  | 'package.read'
+  | 'package.manage'
+  | 'trainer.read'
+  | 'trainer.manage'
+  | 'fitness.write'
+  | 'reports.view'
+  | 'staff.manage'
+  | 'audit.view'
+  | 'notifications.manage'
 
 export interface AuthUserDto {
   id: number
   email: string
-  role: 'owner' | 'reception'
+  role: StaffRole
   name: string
 }
-
-export type StaffRole = 'owner' | 'reception'
 
 export interface AppVariables {
   user: AuthUserDto

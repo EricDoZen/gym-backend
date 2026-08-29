@@ -260,7 +260,7 @@ describe.sequential('live API integration with TiDB', () => {
     expect(renewed.data.status).toBe('Active')
   })
 
-  it('enforces owner-only payment creation', async () => {
+  it('allows reception to record payments under V1.1 RBAC', async () => {
     const res = await app.request('/api/payments', {
       method: 'POST',
       headers: authHeaders(receptionToken),
@@ -269,11 +269,13 @@ describe.sequential('live API integration with TiDB', () => {
         packageName: 'Premium',
         amount: 1000,
         status: 'Paid',
+        paymentMethod: 'Cash',
+        idempotencyKey: `integration-reception-${Date.now()}`,
       }),
     })
-    expect(res.status).toBe(403)
+    expect(res.status).toBe(200)
     const body = await res.json() as any
-    expect(body.success).toBe(false)
-    expect(body.message).toMatch(/permission/i)
+    expect(body.success).toBe(true)
+    expect(body.data.receiptNo).toMatch(/^RCPT-\d+$/)
   })
 })

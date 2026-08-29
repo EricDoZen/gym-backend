@@ -12,7 +12,7 @@ import {
   varchar,
 } from 'drizzle-orm/mysql-core'
 
-export const staffRoleEnum = mysqlEnum('staff_role', ['owner', 'reception'])
+export const staffRoleEnum = mysqlEnum('staff_role', ['owner', 'manager', 'reception', 'trainer', 'accountant'])
 export const memberStatusEnum = mysqlEnum('member_status', [
   'Active',
   'Expired',
@@ -28,6 +28,7 @@ export const membershipActionEnum = mysqlEnum('membership_action', [
   'freeze',
   'renew',
   'upgrade',
+  'downgrade',
   'booking',
 ])
 
@@ -37,7 +38,7 @@ export const staffUsers = mysqlTable(
     id: bigint('id', { mode: 'number' }).primaryKey().autoincrement(),
     email: varchar('email', { length: 255 }).notNull(),
     passwordHash: varchar('password_hash', { length: 255 }).notNull(),
-    role: mysqlEnum('role', ['owner', 'reception']).notNull(),
+    role: mysqlEnum('role', ['owner', 'manager', 'reception', 'trainer', 'accountant']).notNull(),
     fullName: varchar('full_name', { length: 255 }).notNull(),
     isActive: boolean('is_active').notNull().default(true),
     passwordChangedAt: timestamp('password_changed_at'),
@@ -57,13 +58,35 @@ export const membershipPackages = mysqlTable(
     id: bigint('id', { mode: 'number' }).primaryKey().autoincrement(),
     code: varchar('code', { length: 50 }).notNull(),
     name: varchar('name', { length: 100 }).notNull(),
+    description: varchar('description', { length: 500 }),
     priceMmk: bigint('price_mmk', { mode: 'number' }).notNull(),
     durationDays: int('duration_days').notNull(),
+    freezeAllowanceDays: int('freeze_allowance_days').notNull().default(0),
+    sessionLimit: int('session_limit'),
+    renewalWindowDays: int('renewal_window_days').notNull().default(30),
+    allowUpgrade: boolean('allow_upgrade').notNull().default(true),
+    allowDowngrade: boolean('allow_downgrade').notNull().default(true),
+    effectiveFrom: date('effective_from'),
+    sortOrder: int('sort_order').notNull().default(0),
     isActive: boolean('is_active').notNull().default(true),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow().onUpdateNow(),
   },
   (table) => ({
     codeUnique: uniqueIndex('uk_package_code').on(table.code),
   }),
+)
+
+export const membershipPackagePriceHistory = mysqlTable(
+  'membership_package_price_history',
+  {
+    id: bigint('id', { mode: 'number' }).primaryKey().autoincrement(),
+    packageId: bigint('package_id', { mode: 'number' }).notNull(),
+    priceMmk: bigint('price_mmk', { mode: 'number' }).notNull(),
+    effectiveFrom: date('effective_from').notNull(),
+    createdByStaffId: bigint('created_by_staff_id', { mode: 'number' }),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
 )
 
 export const members = mysqlTable(
@@ -135,7 +158,10 @@ export const payments = mysqlTable(
   {
     id: bigint('id', { mode: 'number' }).primaryKey().autoincrement(),
     memberId: bigint('member_id', { mode: 'number' }).notNull(),
+    packageId: bigint('package_id', { mode: 'number' }),
+    packageCode: varchar('package_code', { length: 50 }),
     packageName: varchar('package_name', { length: 100 }).notNull(),
+    packagePriceMmk: bigint('package_price_mmk', { mode: 'number' }),
     amountMmk: bigint('amount_mmk', { mode: 'number' }).notNull(),
     status: mysqlEnum('status', ['Paid', 'Pending', 'Overdue']).notNull(),
     paymentMethod: varchar('payment_method', { length: 50 }).notNull().default('Cash'),
@@ -153,6 +179,16 @@ export const payments = mysqlTable(
   }),
 )
 
+export const paymentAdjustments = mysqlTable('payment_adjustments', {
+  id: bigint('id', { mode: 'number' }).primaryKey().autoincrement(),
+  paymentId: bigint('payment_id', { mode: 'number' }).notNull(),
+  adjustmentType: mysqlEnum('adjustment_type', ['refund', 'void']).notNull(),
+  amountMmk: bigint('amount_mmk', { mode: 'number' }).notNull(),
+  reason: varchar('reason', { length: 500 }).notNull(),
+  createdByStaffId: bigint('created_by_staff_id', { mode: 'number' }).notNull(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+})
+
 export const membershipActions = mysqlTable('membership_actions', {
   id: bigint('id', { mode: 'number' }).primaryKey().autoincrement(),
   memberId: bigint('member_id', { mode: 'number' }).notNull(),
@@ -160,6 +196,7 @@ export const membershipActions = mysqlTable('membership_actions', {
     'freeze',
     'renew',
     'upgrade',
+    'downgrade',
     'booking',
   ]).notNull(),
   notes: varchar('notes', { length: 500 }),
@@ -177,6 +214,25 @@ export const trainers = mysqlTable('trainers', {
   updatedAt: timestamp('updated_at').notNull().defaultNow().onUpdateNow(),
 })
 
+export const trainerWeeklyAvailability = mysqlTable('trainer_weekly_availability', {
+  id: bigint('id', { mode: 'number' }).primaryKey().autoincrement(),
+  trainerId: bigint('trainer_id', { mode: 'number' }).notNull(),
+  weekday: int('weekday').notNull(),
+  startMinute: int('start_minute').notNull(),
+  endMinute: int('end_minute').notNull(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow().onUpdateNow(),
+})
+
+export const trainerTimeOff = mysqlTable('trainer_time_off', {
+  id: bigint('id', { mode: 'number' }).primaryKey().autoincrement(),
+  trainerId: bigint('trainer_id', { mode: 'number' }).notNull(),
+  startsAt: timestamp('starts_at').notNull(),
+  endsAt: timestamp('ends_at').notNull(),
+  reason: varchar('reason', { length: 500 }),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+})
+
 export const bookings = mysqlTable('bookings', {
   id: bigint('id', { mode: 'number' }).primaryKey().autoincrement(),
   memberId: bigint('member_id', { mode: 'number' }).notNull(),
@@ -184,9 +240,10 @@ export const bookings = mysqlTable('bookings', {
   sessionType: varchar('session_type', { length: 100 }).notNull(),
   scheduledAt: timestamp('scheduled_at').notNull(),
   durationMinutes: int('duration_minutes').notNull().default(60),
-  status: mysqlEnum('status', ['Booked', 'Completed', 'Cancelled'])
+  status: mysqlEnum('status', ['Booked', 'Completed', 'Cancelled', 'NoShow'])
     .notNull()
     .default('Booked'),
+  completedAt: timestamp('completed_at'),
   notes: varchar('notes', { length: 500 }),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow().onUpdateNow(),
@@ -213,7 +270,7 @@ export const memberRequests = mysqlTable(
   {
     id: bigint('id', { mode: 'number' }).primaryKey().autoincrement(),
     memberId: bigint('member_id', { mode: 'number' }).notNull(),
-    requestType: mysqlEnum('request_type', ['freeze', 'renew', 'upgrade']).notNull(),
+    requestType: mysqlEnum('request_type', ['freeze', 'renew', 'upgrade', 'downgrade']).notNull(),
     requestedPackage: varchar('requested_package', { length: 100 }),
     status: mysqlEnum('status', ['Pending', 'Approved', 'Rejected'])
       .notNull()
@@ -249,6 +306,42 @@ export const workoutPlans = mysqlTable('workout_plans', {
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow().onUpdateNow(),
 })
+
+export const memberNotes = mysqlTable('member_notes', {
+  id: bigint('id', { mode: 'number' }).primaryKey().autoincrement(),
+  memberId: bigint('member_id', { mode: 'number' }).notNull(),
+  createdByStaffId: bigint('created_by_staff_id', { mode: 'number' }).notNull(),
+  note: varchar('note', { length: 1000 }).notNull(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+})
+
+export const notifications = mysqlTable(
+  'notifications',
+  {
+    id: bigint('id', { mode: 'number' }).primaryKey().autoincrement(),
+    recipientType: mysqlEnum('recipient_type', ['staff', 'member']).notNull(),
+    recipientId: bigint('recipient_id', { mode: 'number' }),
+    eventType: varchar('event_type', { length: 100 }).notNull(),
+    title: varchar('title', { length: 255 }).notNull(),
+    message: varchar('message', { length: 1000 }).notNull(),
+    channel: mysqlEnum('channel', ['internal', 'email', 'sms', 'telegram', 'viber'])
+      .notNull()
+      .default('internal'),
+    status: mysqlEnum('status', ['Pending', 'Sent', 'Failed', 'Read'])
+      .notNull()
+      .default('Pending'),
+    scheduledAt: timestamp('scheduled_at').notNull().defaultNow(),
+    sentAt: timestamp('sent_at'),
+    readAt: timestamp('read_at'),
+    attempts: int('attempts').notNull().default(0),
+    failureReason: varchar('failure_reason', { length: 500 }),
+    dedupeKey: varchar('dedupe_key', { length: 191 }),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (table) => ({
+    dedupeUnique: uniqueIndex('uk_notifications_dedupe').on(table.dedupeKey),
+  }),
+)
 
 export const contactMessages = mysqlTable('contact_messages', {
   id: bigint('id', { mode: 'number' }).primaryKey().autoincrement(),

@@ -7,6 +7,7 @@ import {
   type MemberAuthContext,
 } from '../middleware/member-auth.js'
 import { recordAudit } from '../services/audit.service.js'
+import { listMemberNotifications, markNotificationRead } from '../services/notification.service.js'
 import {
   cancelMemberBooking,
   createMemberBooking,
@@ -27,8 +28,9 @@ const bookingSchema = z.object({
   notes: z.string().trim().max(500).optional(),
 })
 const bookingIdSchema = z.coerce.number().int().positive()
+const notificationIdSchema = z.coerce.number().int().positive()
 const requestSchema = z.object({
-  requestType: z.enum(['freeze', 'renew', 'upgrade']),
+  requestType: z.enum(['freeze', 'renew', 'upgrade', 'downgrade']),
   requestedPackage: z.string().trim().max(100).optional(),
 })
 
@@ -83,6 +85,15 @@ export const memberPortalRoutes = new Hono<MemberAuthContext>()
     const member = c.get('member')
     return c.json(ok(await getActiveWorkoutPlan(Number(member.id)), 'success'))
   })
+  .get('/notifications', async (c) => {
+    const member = c.get('member')
+    return c.json(ok(await listMemberNotifications(Number(member.id)), 'success'))
+  })
+  .patch('/notifications/:id/read', async (c) => {
+    const member = c.get('member')
+    const id = notificationIdSchema.parse(c.req.param('id'))
+    return c.json(ok(await markNotificationRead(id, 'member', Number(member.id)), 'Notification read'))
+  })
   .get('/requests', async (c) => {
     const member = c.get('member')
     return c.json(ok(await listMemberRequests(Number(member.id)), 'success'))
@@ -90,9 +101,9 @@ export const memberPortalRoutes = new Hono<MemberAuthContext>()
   .post('/requests', async (c) => {
     const member = c.get('member')
     const body = requestSchema.parse(await c.req.json())
-    if (body.requestType === 'upgrade' && !body.requestedPackage) {
+    if ((body.requestType === 'upgrade' || body.requestType === 'downgrade') && !body.requestedPackage) {
       return c.json(
-        { success: false, data: null, message: 'Package is required for upgrade requests' },
+        { success: false, data: null, message: 'Package is required for package change requests' },
         400,
       )
     }

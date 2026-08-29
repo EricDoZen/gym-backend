@@ -7,6 +7,7 @@ import { staffUsers } from '../db/schema.js'
 import { env } from '../env.js'
 import { httpError } from '../middleware/error.js'
 import type { StaffRole } from '../lib/types.js'
+import { rolePermissions } from '../lib/permissions.js'
 
 const encoder = new TextEncoder()
 
@@ -19,6 +20,7 @@ function toStaffDto(user: typeof staffUsers.$inferSelect) {
     isActive: user.isActive,
     lastLoginAt: user.lastLoginAt,
     createdAt: user.createdAt,
+    permissions: rolePermissions(user.role),
   }
 }
 
@@ -62,6 +64,7 @@ export async function login(email: string, password: string) {
     role: user.role,
     name: user.fullName,
     email: user.email,
+    permissions: rolePermissions(user.role),
   }
 }
 
@@ -121,7 +124,7 @@ async function ensureOwnerContinuity(targetId: number, nextRole?: StaffRole, nex
 
   const removesOwner =
     target.role === 'owner' && target.isActive &&
-    (nextRole === 'reception' || nextActive === false)
+    ((nextRole !== undefined && nextRole !== 'owner') || nextActive === false)
   if (!removesOwner) return target
 
   const owners = await db

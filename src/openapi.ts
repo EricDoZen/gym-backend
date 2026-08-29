@@ -2,9 +2,9 @@ export const openApiDoc = {
   openapi: '3.0.3',
   info: {
     title: 'Elite Myanmar Gym API',
-    version: '1.0.1',
+    version: '1.1.0',
     description:
-      'Production V1 REST API for Elite Myanmar gym management. Staff and member portal JWTs are intentionally separated.',
+      'Production V1.1 Operations API for Elite Myanmar gym management: configurable packages, permission-based staff roles, immutable payment adjustments, trainer scheduling, reports and internal notifications. Staff and member portal JWTs are intentionally separated.',
   },
   servers: [
     { url: 'https://gym-backend-wheat.vercel.app', description: 'Production' },
@@ -14,15 +14,16 @@ export const openApiDoc = {
     { name: 'Health', description: 'Service health checks' },
     { name: 'Auth', description: 'Staff authentication' },
     { name: 'Dashboard', description: 'Owner dashboard metrics' },
-    { name: 'Members', description: 'Member management and check-ins' },
+    { name: 'Members', description: 'Member management, command-center overview, notes and check-ins' },
+    { name: 'Packages', description: 'Configurable membership packages and price history' },
     { name: 'Trials', description: 'Trial registrations' },
-    { name: 'Payments', description: 'Payment records' },
+    { name: 'Payments', description: 'Immutable payment records, receipts, refunds and voids' },
     { name: 'Contact', description: 'Public contact form' },
     { name: 'Member Auth', description: 'Member portal activation and authentication' },
     { name: 'Member Portal', description: 'Member-owned booking, progress, workout and requests' },
     { name: 'Trainers', description: 'Trainer management' },
     { name: 'Fitness Ops', description: 'Staff fitness operations and request approvals' },
-    { name: 'Operations', description: 'Readiness and owner-only audit logs' },
+    { name: 'Operations', description: 'Audit logs, operational reports and notification queue' },
   ],
   components: {
     securitySchemes: {
@@ -66,7 +67,7 @@ export const openApiDoc = {
                 type: 'object',
                 properties: {
                   token: { type: 'string' },
-                  role: { type: 'string', enum: ['owner', 'reception'] },
+                  role: { type: 'string', enum: ['owner', 'manager', 'reception', 'trainer', 'accountant'] },
                   name: { type: 'string' },
                   email: { type: 'string', format: 'email' },
                 },
@@ -80,7 +81,7 @@ export const openApiDoc = {
         properties: {
           id: { type: 'integer' },
           email: { type: 'string', format: 'email' },
-          role: { type: 'string', enum: ['owner', 'reception'] },
+          role: { type: 'string', enum: ['owner', 'manager', 'reception', 'trainer', 'accountant'] },
           name: { type: 'string' },
         },
       },
@@ -120,8 +121,9 @@ export const openApiDoc = {
         properties: {
           action: {
             type: 'string',
-            enum: ['freeze', 'renew', 'upgrade', 'booking'],
+            enum: ['freeze', 'renew', 'upgrade', 'downgrade', 'booking'],
           },
+          package: { type: 'string', description: 'Target package code/name for upgrade or downgrade' },
         },
       },
       Checkin: {
@@ -172,7 +174,7 @@ export const openApiDoc = {
           receiptNo: { type: 'string', nullable: true, example: 'RCPT-12345' },
           membershipAction: {
             type: 'string',
-            enum: ['renew', 'upgrade', ''],
+            enum: ['renew', 'upgrade', 'downgrade', ''],
             description: 'Membership change committed atomically with this paid receipt, when requested',
           },
         },
@@ -195,7 +197,7 @@ export const openApiDoc = {
           idempotencyKey: { type: 'string', description: 'Unique client-generated key used to safely retry payment creation' },
           membershipAction: {
             type: 'string',
-            enum: ['renew', 'upgrade'],
+            enum: ['renew', 'upgrade', 'downgrade'],
             description: 'Optional. Requires status=Paid. Receipt and membership change are committed in one transaction.',
           },
         },
@@ -718,7 +720,7 @@ export const openApiDoc = {
       },
       post: {
         tags: ['Payments'],
-        summary: 'Record payment (owner only)',
+        summary: 'Record payment (payment.create permission)',
         security: [{ bearerAuth: [] }],
         requestBody: {
           required: true,
@@ -808,6 +810,56 @@ export const openApiDoc = {
     },
     '/api/ops/audit': {
       get: { tags: ['Operations'], summary: 'Owner-only audit log', security: [{ bearerAuth: [] }], responses: { '200': { description: 'Audit records' }, '403': { description: 'Owner role required' } } },
+    },
+    '/api/packages': {
+      get: { tags: ['Packages'], summary: 'List active membership packages (public)', responses: { '200': { description: 'Active package list' } } },
+      post: { tags: ['Packages'], summary: 'Create membership package', security: [{ bearerAuth: [] }], responses: { '201': { description: 'Package created' }, '403': { description: 'Requires package.manage permission' } } },
+    },
+    '/api/packages/admin': {
+      get: { tags: ['Packages'], summary: 'List all membership packages for administration', security: [{ bearerAuth: [] }], responses: { '200': { description: 'Package list' }, '403': { description: 'Requires package.manage permission' } } },
+    },
+    '/api/packages/{id}': {
+      patch: { tags: ['Packages'], summary: 'Update package rules or price', security: [{ bearerAuth: [] }], parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }], responses: { '200': { description: 'Package updated' } } },
+    },
+    '/api/packages/{id}/prices': {
+      get: { tags: ['Packages'], summary: 'Package price history', security: [{ bearerAuth: [] }], parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }], responses: { '200': { description: 'Price history' } } },
+    },
+    '/api/payments/{id}/adjustments': {
+      get: { tags: ['Payments'], summary: 'List immutable refund/void adjustments', security: [{ bearerAuth: [] }], parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }], responses: { '200': { description: 'Adjustment history' } } },
+      post: { tags: ['Payments'], summary: 'Record refund or void without mutating the original receipt', security: [{ bearerAuth: [] }], parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }], responses: { '200': { description: 'Adjustment recorded' }, '403': { description: 'Requires payment.adjust permission' }, '409': { description: 'Adjustment exceeds remaining balance or invalid void' } } },
+    },
+    '/api/members/{id}/overview': {
+      get: { tags: ['Members'], summary: 'Member command-center overview', security: [{ bearerAuth: [] }], parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }], responses: { '200': { description: 'Profile, payments, check-ins, bookings, requests, trainer, progress, workout and notes' } } },
+    },
+    '/api/members/{id}/notes': {
+      get: { tags: ['Members'], summary: 'List append-only staff notes', security: [{ bearerAuth: [] }], parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }], responses: { '200': { description: 'Member notes' } } },
+      post: { tags: ['Members'], summary: 'Append staff note', security: [{ bearerAuth: [] }], parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }], responses: { '201': { description: 'Note added' }, '403': { description: 'Requires member.notes permission' } } },
+    },
+    '/api/trainers/{id}/availability': {
+      get: { tags: ['Trainers'], summary: 'Trainer weekly availability', security: [{ bearerAuth: [] }], parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }], responses: { '200': { description: 'Availability slots' } } },
+      put: { tags: ['Trainers'], summary: 'Replace trainer weekly availability', security: [{ bearerAuth: [] }], parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }], responses: { '200': { description: 'Availability saved' } } },
+    },
+    '/api/trainers/{id}/time-off': {
+      get: { tags: ['Trainers'], summary: 'Trainer time-off list', security: [{ bearerAuth: [] }], parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }], responses: { '200': { description: 'Time-off list' } } },
+      post: { tags: ['Trainers'], summary: 'Add trainer time off', security: [{ bearerAuth: [] }], parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }], responses: { '201': { description: 'Time off saved' } } },
+    },
+    '/api/trainers/{id}/calendar': {
+      get: { tags: ['Trainers'], summary: 'Trainer booking calendar', security: [{ bearerAuth: [] }], parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }], responses: { '200': { description: 'Calendar bookings' } } },
+    },
+    '/api/fitness/bookings/{id}/status': {
+      patch: { tags: ['Fitness Ops'], summary: 'Mark booked session Completed, Cancelled or NoShow', security: [{ bearerAuth: [] }], parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }], responses: { '200': { description: 'Booking status updated' }, '403': { description: 'Requires fitness.write permission' } } },
+    },
+    '/api/ops/reports': {
+      get: { tags: ['Operations'], summary: 'Net operational report (gross less refunds/voids)', security: [{ bearerAuth: [] }], responses: { '200': { description: 'Revenue, membership, trial, attendance, package and trainer metrics' }, '403': { description: 'Requires reports.view permission' } } },
+    },
+    '/api/ops/notifications': {
+      get: { tags: ['Operations'], summary: 'Staff internal notification queue', security: [{ bearerAuth: [] }], responses: { '200': { description: 'Notifications visible to current staff' } } },
+    },
+    '/api/ops/notifications/generate': {
+      post: { tags: ['Operations'], summary: 'Generate deduplicated operational notifications', security: [{ bearerAuth: [] }], responses: { '200': { description: 'Generation summary' }, '403': { description: 'Requires notifications.manage permission' } } },
+    },
+    '/api/portal/notifications': {
+      get: { tags: ['Member Portal'], summary: 'Authenticated member notifications', security: [{ memberBearerAuth: [] }], responses: { '200': { description: 'Member notification list' } } },
     },
     '/api/contact': {
       post: {

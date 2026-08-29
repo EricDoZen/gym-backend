@@ -26,6 +26,9 @@ jobs:
           doc="$(curl --fail --silent --show-error --retry 2 --max-time 20 https://gym-backend-wheat.vercel.app/doc)"
           grep -q '"/api/member-auth/login"' <<<"$doc"
           grep -q '"/api/payments"' <<<"$doc"
+          grep -q '"/api/packages"' <<<"$doc"
+          grep -q '"/api/ops/reports"' <<<"$doc"
+          grep -q '"/api/portal/notifications"' <<<"$doc"
 
       - name: Check production CORS
         shell: bash
@@ -43,7 +46,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for path in / /admin/login /portal/status; do
+          for path in / /admin/login /admin/reception /admin/subscription /admin/reports /portal/status; do
             curl --fail --silent --show-error --retry 2 --max-time 20 \
               "https://gym-frontend-three-psi.vercel.app${path}" \
               -o /dev/null

@@ -4,7 +4,8 @@ import { eq } from 'drizzle-orm'
 import { getDb } from '../db/client.js'
 import { staffUsers } from '../db/schema.js'
 import { env } from '../env.js'
-import type { AppVariables, StaffRole } from '../lib/types.js'
+import type { AppVariables, StaffPermission, StaffRole } from '../lib/types.js'
+import { hasPermission } from '../lib/permissions.js'
 import { httpError } from './error.js'
 
 const encoder = new TextEncoder()
@@ -62,6 +63,16 @@ export function requireRole(...roles: StaffRole[]) {
   return createMiddleware<AuthContext>(async (c, next) => {
     const user = c.get('user')
     if (!roles.includes(user.role)) {
+      httpError(403, 'Insufficient permissions')
+    }
+    await next()
+  })
+}
+
+export function requirePermission(permission: StaffPermission) {
+  return createMiddleware<AuthContext>(async (c, next) => {
+    const user = c.get('user')
+    if (!hasPermission(user.role, permission)) {
       httpError(403, 'Insufficient permissions')
     }
     await next()

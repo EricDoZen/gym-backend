@@ -41,7 +41,10 @@ export function toPaymentDto(input: {
   id: number
   memberId: number
   memberName: string
+  packageId?: number | null
+  packageCode?: string | null
   packageName: string
+  packagePriceMmk?: number | null
   amountMmk: number
   status: 'Paid' | 'Pending' | 'Overdue'
   paymentMethod?: string | null
@@ -54,14 +57,19 @@ export function toPaymentDto(input: {
     id: String(input.id),
     memberId: String(input.memberId),
     memberName: input.memberName,
+    packageId: input.packageId == null ? '' : String(input.packageId),
+    packageCode: input.packageCode ?? '',
     package: input.packageName,
-    amount: input.amountMmk,
+    packagePriceMmk: Number(input.packagePriceMmk ?? input.amountMmk),
+    amount: Number(input.amountMmk),
     status: input.status,
     paymentMethod: input.paymentMethod ?? 'Cash',
     referenceNo: input.referenceNo ?? '',
     receiptNo: input.receiptNo ?? '',
     membershipAction:
-      input.membershipAction === 'renew' || input.membershipAction === 'upgrade'
+      input.membershipAction === 'renew' ||
+      input.membershipAction === 'upgrade' ||
+      input.membershipAction === 'downgrade'
         ? input.membershipAction
         : '',
     date: formatDisplayDate(input.paymentDate),

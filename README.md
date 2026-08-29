@@ -1,13 +1,13 @@
-# Elite Myanmar Gym Backend — V1
+# Elite Myanmar Gym Backend — V1.1
 
 Production REST API for the single-branch Elite Myanmar Gym Management System.
 
 ## Stack
 
 - Hono + TypeScript
-- Drizzle ORM
-- TiDB Cloud Serverless
-- JWT staff/member authentication
+- Drizzle ORM + TiDB Cloud Serverless
+- Separate JWT sessions for staff and members
+- Permission-based RBAC
 - Vercel deployment
 
 ## Production endpoints
@@ -29,81 +29,76 @@ npm run db:seed   # first-time database only
 npm run dev
 ```
 
-Required production configuration is stored outside Git. `JWT_SECRET` must be unique and at least 32 characters in production. Seed passwords are required only when creating the initial staff accounts; never commit real passwords.
+Production secrets and seed passwords live outside Git. `JWT_SECRET` must be unique and at least 32 characters in production.
 
-## Authentication boundaries
+## Authentication and RBAC
 
-Staff and member sessions are deliberately separate.
-
-- Staff JWT: `POST /api/auth/login`
-- Member activation: `POST /api/member-auth/activate`
-- Member JWT: `POST /api/member-auth/login`
-- Staff JWT cannot access member-only endpoints.
-- Member JWT cannot access staff-only endpoints.
+Staff and member sessions are deliberately separate. Password changes/reset increment token versions so previously issued sessions are revoked.
 
 Staff roles:
 
-- `owner`: full administration, payments, staff management, audit log
-- `reception`: reception/member workflows without owner-only mutations
+- `owner` — all permissions including staff management
+- `manager` — operations administration except staff management
+- `reception` — members, check-in, payments, package/trainer read access
+- `trainer` — member read/notes plus fitness operations
+- `accountant` — payments, adjustments and reports
 
-## V1 API groups
+Authorization is enforced through granular permissions such as `member.read`, `payment.adjust`, `package.manage`, `fitness.write`, `reports.view` and `staff.manage`.
 
-- `/api/auth` — staff login, profile, password, staff accounts
-- `/api/member-auth` — member activation/login/password/profile
-- `/api/dashboard` — live operational metrics
-- `/api/members` — member management and check-in
-- `/api/trials` — public trial registration + staff conversion
-- `/api/payments` — owner payment/receipt records with idempotency
-- `/api/trainers` — trainer management
-- `/api/portal` — member bookings/progress/workout/requests
-- `/api/fitness` — staff progress/workout/trainer assignment/request approval
-- `/api/ops` — owner audit log
-- `/api/contact` — public contact form
+## V1.1 capabilities
+
+- Configurable membership package engine and price history
+- DB-driven renew/upgrade/downgrade rules
+- Package snapshots on payments
+- Atomic payment + membership changes with idempotency
+- Immutable receipts with refund/void adjustment ledger
+- Member command-center overview and append-only staff notes
+- Trainer availability, time off, calendar, completed/no-show sessions
+- Net revenue/trial conversion/expiry/attendance/trainer reports
+- Internal member/staff notification queue with dedupe
+- Trial conversion, check-ins, member portal, progress/workout and approval workflows
+- Audit logs, distributed TiDB rate limiting, request IDs and readiness checks
 
 ## Database migrations
 
-Migrations are applied in filename order and tracked in `schema_migrations`.
-
-Current V1 schema:
+Migrations are filename-ordered and tracked in `schema_migrations`.
 
 1. `0001_init.sql`
 2. `0002_production_hardening.sql`
 3. `0003_operational_v1.sql`
-
-Run:
+4. `0004_release_hardening.sql`
+5. `0005_v1_1_package_engine.sql`
+6. `0006_v1_1_package_defaults.sql`
+7. `0007_v1_1_operations.sql`
 
 ```bash
+npm run release:preflight
 npm run db:migrate
 ```
 
-The V1 hardening adds application + database duplicate protection, member accounts, distributed TiDB rate limiting, audit logs, trainers, bookings, request approvals, progress/workout data, payment receipts/idempotency and trainer assignments.
+Release preflight must report zero duplicate/orphan invariant groups.
 
-## Backup
-
-Create an AES-256-GCM encrypted backup:
+## Backup and recovery
 
 ```bash
 npm run db:backup
 npm run db:backup:verify
+npm run db:restore:rehearsal
 ```
 
-The encryption key is stored in `.backup-key`; backups are stored under `backups/`. Both are ignored by Git. Losing `.backup-key` makes encrypted backups unrecoverable, so store an external protected copy of the key.
+V1.1 encrypted backups cover 24 tables including package price history, payment adjustments, trainer schedule/time off, member notes, notifications and migration history. `.backup-key` and `backups/` are ignored by Git.
 
-See `BACKUP_RUNBOOK.md` for the recovery procedure.
+See `BACKUP_RUNBOOK.md` for recovery rules.
 
 ## Verification
-
-Before a production release:
 
 ```bash
 npm run build
 npm test
-npm run db:backup
-npm run db:backup:verify
+npm audit --audit-level=moderate
+npm run release:preflight
 ```
 
-Current acceptance suite includes authentication separation, duplicate member protection, transactional trial conversion, duplicate check-in protection, owner-only payments, payment idempotency/receipt uniqueness, distributed rate limiting, staff management, trainer assignment, booking collision protection, progress/workout APIs, approval workflows, readiness and audit logs.
+The V1.1 suite covers authentication separation, RBAC, package rules, payment idempotency/atomic membership changes, refund/void bounds, trainer scheduling, member overview/notes, reports, notification dedupe, check-in protection and production hardening.
 
-## Release
-
-See `PRODUCTION_RUNBOOK.md`. Production deployment must always verify `/health` and `/ready` after the backend deploy before releasing the frontend.
+See `PRODUCTION_RUNBOOK.md` before every production release.

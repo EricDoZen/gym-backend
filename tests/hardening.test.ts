@@ -240,7 +240,7 @@ describe.sequential('production hardening API', () => {
 
     const progress = await app.request(`/api/fitness/members/${memberId}/progress`, {
       method: 'POST',
-      headers: authHeaders(receptionToken),
+      headers: authHeaders(ownerToken),
       body: JSON.stringify({ weightKg: 70.25, bodyFatPct: 18.5 }),
     })
     expect(progress.status).toBe(201)

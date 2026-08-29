@@ -15,7 +15,6 @@ import {
   checkins,
   members,
   membershipActions,
-  membershipPackages,
   payments,
 } from '../db/schema.js'
 import {
@@ -27,14 +26,13 @@ import {
 import { toCheckinDto, toMemberDto } from '../lib/mappers.js'
 import {
   generateMemberCode,
-  normalizePackageName,
-  packageCodeFromName,
   type DbExecutor,
 } from '../lib/member-code.js'
 import type { DashboardStatsDto } from '../lib/types.js'
 import { getInsertId } from '../lib/insert-id.js'
 import { httpError } from '../middleware/error.js'
 import { normalizePhone } from '../lib/phone.js'
+import { resolveMembershipPackage } from './package.service.js'
 
 function startOfToday() {
   const date = new Date()
@@ -141,15 +139,8 @@ function duplicateConstraintName(error: unknown) {
 }
 
 export async function createMemberInDb(db: DbExecutor, input: CreateMemberInput) {
-  const packageName = normalizePackageName(input.package ?? 'Standard')
-  const [membershipPackage] = await db
-    .select()
-    .from(membershipPackages)
-    .where(eq(membershipPackages.code, packageCodeFromName(packageName)))
-    .limit(1)
-  if (!membershipPackage || !membershipPackage.isActive) {
-    httpError(400, 'Invalid or inactive membership package')
-  }
+  const membershipPackage = await resolveMembershipPackage(db, input.package ?? 'standard')
+  const packageName = membershipPackage.name
 
   const joinDate = new Date()
   const expireDate = addDays(joinDate, membershipPackage.durationDays)
@@ -212,7 +203,7 @@ export async function createMember(input: CreateMemberInput) {
 export async function performMemberActionInDb(
   db: DbExecutor,
   memberId: number,
-  action: 'freeze' | 'renew' | 'upgrade' | 'booking',
+  action: 'freeze' | 'renew' | 'upgrade' | 'downgrade' | 'booking',
   targetPackage?: string,
 ) {
   const [member] = await db
@@ -222,57 +213,70 @@ export async function performMemberActionInDb(
     .limit(1)
   if (!member) httpError(404, 'Member not found')
 
+  const currentPackage = await resolveMembershipPackage(
+    db,
+    member.packageId ?? member.packageName,
+    { activeOnly: false },
+  )
   let notes: string | null = null
 
   if (action === 'freeze' && member.status !== 'Frozen') {
+    if (currentPackage.freezeAllowanceDays <= 0) {
+      httpError(409, 'This membership package does not allow freezing')
+    }
     await db
       .update(members)
       .set({ status: 'Frozen' })
       .where(eq(members.id, memberId))
+    notes = `freezeAllowanceDays=${currentPackage.freezeAllowanceDays}`
   }
 
   if (action === 'renew') {
-    const [membershipPackage] = await db
-      .select()
-      .from(membershipPackages)
-      .where(eq(membershipPackages.code, packageCodeFromName(member.packageName)))
-      .limit(1)
-    if (!membershipPackage || !membershipPackage.isActive) {
-      httpError(409, 'Membership package is no longer available')
+    if (!currentPackage.isActive) {
+      httpError(409, 'Membership package is no longer available for renewal')
     }
     const currentExpiry = parseFlexibleDate(formatDisplayDate(member.expireDate))
     const today = startOfToday()
     const baseDate = currentExpiry > today ? currentExpiry : today
-    const expireDate = addDays(baseDate, membershipPackage.durationDays)
+    const expireDate = addDays(baseDate, currentPackage.durationDays)
     await db
       .update(members)
       .set({
         status: 'Active',
-        packageId: membershipPackage.id,
+        packageId: currentPackage.id,
+        packageName: currentPackage.name,
         expireDate: toSqlDate(expireDate),
       })
       .where(eq(members.id, memberId))
+    notes = `package=${currentPackage.code};durationDays=${currentPackage.durationDays}`
   }
 
-  if (action === 'upgrade') {
-    if (!targetPackage) httpError(400, 'Package is required for upgrade')
-    const packageName = normalizePackageName(targetPackage)
-    const [membershipPackage] = await db
-      .select()
-      .from(membershipPackages)
-      .where(eq(membershipPackages.code, packageCodeFromName(packageName)))
-      .limit(1)
-    if (!membershipPackage || !membershipPackage.isActive) {
-      httpError(400, 'Invalid or inactive membership package')
-    }
-    if (packageName === member.packageName) {
+  if (action === 'upgrade' || action === 'downgrade') {
+    if (!targetPackage) httpError(400, 'Package is required')
+    const nextPackage = await resolveMembershipPackage(db, targetPackage)
+    if (nextPackage.id === currentPackage.id) {
       httpError(409, 'Member is already on this package')
     }
+
+    const currentPrice = Number(currentPackage.priceMmk)
+    const targetPrice = Number(nextPackage.priceMmk)
+    if (action === 'upgrade') {
+      if (!currentPackage.allowUpgrade) httpError(409, 'Current package does not allow upgrades')
+      if (targetPrice <= currentPrice) {
+        httpError(400, 'Selected package is not an upgrade; use downgrade instead')
+      }
+    } else {
+      if (!currentPackage.allowDowngrade) httpError(409, 'Current package does not allow downgrades')
+      if (targetPrice >= currentPrice) {
+        httpError(400, 'Selected package is not a downgrade; use upgrade instead')
+      }
+    }
+
     await db
       .update(members)
-      .set({ packageId: membershipPackage.id, packageName })
+      .set({ packageId: nextPackage.id, packageName: nextPackage.name })
       .where(eq(members.id, memberId))
-    notes = `package=${packageName}`
+    notes = `package=${nextPackage.code};from=${currentPackage.code}`
   }
 
   await db.insert(membershipActions).values({
@@ -286,7 +290,7 @@ export async function performMemberActionInDb(
 
 export async function performMemberAction(
   memberId: number,
-  action: 'freeze' | 'renew' | 'upgrade' | 'booking',
+  action: 'freeze' | 'renew' | 'upgrade' | 'downgrade' | 'booking',
   targetPackage?: string,
 ) {
   return performMemberActionInDb(getDb(), memberId, action, targetPackage)

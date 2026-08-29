@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, lte, or } from 'drizzle-orm'
+import { and, desc, eq, gte, lte, or, sql } from 'drizzle-orm'
 import { getDb } from '../db/client.js'
 import {
   bookings,
@@ -7,6 +7,8 @@ import {
   memberTrainerAssignments,
   progressEntries,
   trainers,
+  trainerTimeOff,
+  trainerWeeklyAvailability,
   workoutPlans,
 } from '../db/schema.js'
 import { getInsertId } from '../lib/insert-id.js'
@@ -151,6 +153,42 @@ export async function createMemberBooking(
   }
 
   const durationMinutes = Math.max(15, Math.min(240, input.durationMinutes ?? 60))
+  if (input.trainerId) {
+    const weekday = input.scheduledAt.getDay()
+    const startMinute = input.scheduledAt.getHours() * 60 + input.scheduledAt.getMinutes()
+    const endMinute = startMinute + durationMinutes
+    const availability = await db
+      .select()
+      .from(trainerWeeklyAvailability)
+      .where(
+        and(
+          eq(trainerWeeklyAvailability.trainerId, input.trainerId),
+          eq(trainerWeeklyAvailability.weekday, weekday),
+        ),
+      )
+    const configuredSlots = await db
+      .select({ id: trainerWeeklyAvailability.id })
+      .from(trainerWeeklyAvailability)
+      .where(eq(trainerWeeklyAvailability.trainerId, input.trainerId))
+      .limit(1)
+    if (configuredSlots.length && !availability.some((slot) => startMinute >= slot.startMinute && endMinute <= slot.endMinute)) {
+      httpError(409, 'Trainer is outside configured working hours')
+    }
+
+    const bookingEnd = new Date(input.scheduledAt.getTime() + durationMinutes * 60_000)
+    const [timeOff] = await db
+      .select({ id: trainerTimeOff.id })
+      .from(trainerTimeOff)
+      .where(
+        and(
+          eq(trainerTimeOff.trainerId, input.trainerId),
+          sql`${trainerTimeOff.startsAt} < ${bookingEnd}`,
+          sql`${trainerTimeOff.endsAt} > ${input.scheduledAt}`,
+        ),
+      )
+      .limit(1)
+    if (timeOff) httpError(409, 'Trainer is unavailable during this time')
+  }
   const conflictWindowStart = new Date(input.scheduledAt.getTime() - (durationMinutes - 1) * 60_000)
   const conflictWindowEnd = new Date(input.scheduledAt.getTime() + (durationMinutes - 1) * 60_000)
   const conflictFilters = [
@@ -306,7 +344,7 @@ export async function setWorkoutPlan(
 
 export async function createMemberRequest(
   memberId: number,
-  input: { requestType: 'freeze' | 'renew' | 'upgrade'; requestedPackage?: string },
+  input: { requestType: 'freeze' | 'renew' | 'upgrade' | 'downgrade'; requestedPackage?: string },
 ) {
   const db = getDb()
   const existing = await db
@@ -501,4 +539,129 @@ export async function resolveMemberRequest(
 
     return { status: nextStatus }
   })
+}
+
+export async function listTrainerAvailability(trainerId: number) {
+  const db = getDb()
+  const rows = await db
+    .select()
+    .from(trainerWeeklyAvailability)
+    .where(eq(trainerWeeklyAvailability.trainerId, trainerId))
+    .orderBy(trainerWeeklyAvailability.weekday, trainerWeeklyAvailability.startMinute)
+  return rows.map((row) => ({
+    id: String(row.id),
+    trainerId: String(row.trainerId),
+    weekday: row.weekday,
+    startMinute: row.startMinute,
+    endMinute: row.endMinute,
+  }))
+}
+
+export async function replaceTrainerAvailability(
+  trainerId: number,
+  slots: Array<{ weekday: number; startMinute: number; endMinute: number }>,
+) {
+  const db = getDb()
+  const [trainer] = await db.select({ id: trainers.id }).from(trainers).where(eq(trainers.id, trainerId)).limit(1)
+  if (!trainer) httpError(404, 'Trainer not found')
+  for (const slot of slots) {
+    if (slot.weekday < 0 || slot.weekday > 6 || slot.startMinute < 0 || slot.endMinute > 1440 || slot.startMinute >= slot.endMinute) {
+      httpError(400, 'Invalid trainer availability slot')
+    }
+  }
+  await db.transaction(async (tx) => {
+    await tx.delete(trainerWeeklyAvailability).where(eq(trainerWeeklyAvailability.trainerId, trainerId))
+    if (slots.length) {
+      await tx.insert(trainerWeeklyAvailability).values(
+        slots.map((slot) => ({ trainerId, ...slot })),
+      )
+    }
+  })
+  return listTrainerAvailability(trainerId)
+}
+
+export async function listTrainerTimeOff(trainerId: number) {
+  const db = getDb()
+  const rows = await db
+    .select()
+    .from(trainerTimeOff)
+    .where(eq(trainerTimeOff.trainerId, trainerId))
+    .orderBy(desc(trainerTimeOff.startsAt))
+    .limit(100)
+  return rows.map((row) => ({
+    id: String(row.id),
+    trainerId: String(row.trainerId),
+    startsAt: row.startsAt,
+    endsAt: row.endsAt,
+    reason: row.reason ?? '',
+  }))
+}
+
+export async function addTrainerTimeOff(
+  trainerId: number,
+  input: { startsAt: Date; endsAt: Date; reason?: string },
+) {
+  if (input.endsAt <= input.startsAt) httpError(400, 'Time off end must be after start')
+  const db = getDb()
+  const [trainer] = await db.select({ id: trainers.id }).from(trainers).where(eq(trainers.id, trainerId)).limit(1)
+  if (!trainer) httpError(404, 'Trainer not found')
+  const result = await db.insert(trainerTimeOff).values({
+    trainerId,
+    startsAt: input.startsAt,
+    endsAt: input.endsAt,
+    reason: input.reason?.trim() || null,
+  })
+  return { id: String(getInsertId(result)), trainerId: String(trainerId), ...input }
+}
+
+export async function listTrainerCalendar(trainerId: number, from: Date, to: Date) {
+  const db = getDb()
+  const rows = await db
+    .select({
+      id: bookings.id,
+      memberId: bookings.memberId,
+      memberName: members.fullName,
+      sessionType: bookings.sessionType,
+      scheduledAt: bookings.scheduledAt,
+      durationMinutes: bookings.durationMinutes,
+      status: bookings.status,
+      notes: bookings.notes,
+      completedAt: bookings.completedAt,
+    })
+    .from(bookings)
+    .innerJoin(members, eq(bookings.memberId, members.id))
+    .where(
+      and(
+        eq(bookings.trainerId, trainerId),
+        gte(bookings.scheduledAt, from),
+        lte(bookings.scheduledAt, to),
+      ),
+    )
+    .orderBy(bookings.scheduledAt)
+  return rows.map((row) => ({
+    id: String(row.id),
+    memberId: String(row.memberId),
+    memberName: row.memberName,
+    sessionType: row.sessionType,
+    scheduledAt: row.scheduledAt,
+    durationMinutes: row.durationMinutes,
+    status: row.status,
+    notes: row.notes ?? '',
+    completedAt: row.completedAt,
+  }))
+}
+
+export async function updateBookingStatus(
+  bookingId: number,
+  status: 'Completed' | 'Cancelled' | 'NoShow',
+) {
+  const db = getDb()
+  const [booking] = await db.select().from(bookings).where(eq(bookings.id, bookingId)).limit(1)
+  if (!booking) httpError(404, 'Booking not found')
+  if (booking.status !== 'Booked') httpError(409, 'Only booked sessions can change status')
+  await db
+    .update(bookings)
+    .set({ status, completedAt: status === 'Completed' ? new Date() : null })
+    .where(and(eq(bookings.id, bookingId), eq(bookings.status, 'Booked')))
+  return true
 }

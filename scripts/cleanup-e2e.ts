@@ -1,5 +1,5 @@
 import 'dotenv/config'
-import { and, eq, like } from 'drizzle-orm'
+import { and, eq, inArray, like } from 'drizzle-orm'
 import { getDb, closeDb } from '../src/db/client.js'
 import {
   auditLogs,
@@ -7,10 +7,13 @@ import {
   checkins,
   contactMessages,
   memberAccounts,
+  memberNotes,
   memberRequests,
   memberTrainerAssignments,
   members,
   membershipActions,
+  notifications,
+  paymentAdjustments,
   payments,
   progressEntries,
   trialRegistrations,
@@ -57,7 +60,12 @@ async function main() {
     await db.delete(workoutPlans).where(eq(workoutPlans.memberId, id))
     await db.delete(memberRequests).where(eq(memberRequests.memberId, id))
     await db.delete(membershipActions).where(eq(membershipActions.memberId, id))
+    await db.delete(memberNotes).where(eq(memberNotes.memberId, id))
+    await db.delete(notifications).where(and(eq(notifications.recipientType, 'member'), eq(notifications.recipientId, id)))
     await db.delete(checkins).where(eq(checkins.memberId, id))
+    const memberPayments = await db.select({ id: payments.id }).from(payments).where(eq(payments.memberId, id))
+    const paymentIds = memberPayments.map((row) => row.id)
+    if (paymentIds.length) await db.delete(paymentAdjustments).where(inArray(paymentAdjustments.paymentId, paymentIds))
     await db.delete(payments).where(eq(payments.memberId, id))
     await db.delete(memberAccounts).where(eq(memberAccounts.memberId, id))
     await db.delete(auditLogs).where(eq(auditLogs.actorMemberId, id))

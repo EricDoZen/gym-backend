@@ -1,7 +1,8 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
 import type { AuthContext } from '../middleware/auth.js'
-import { authMiddleware, requireRole } from '../middleware/auth.js'
+import { authMiddleware, requirePermission, requireRole } from '../middleware/auth.js'
+import { rolePermissions } from '../lib/permissions.js'
 import { ok } from '../lib/response.js'
 import { getClientIp } from '../lib/request.js'
 import {
@@ -31,14 +32,14 @@ const strongPassword = z
 const createStaffSchema = z.object({
   email: z.string().trim().email().max(255),
   password: strongPassword,
-  role: z.enum(['owner', 'reception']),
+  role: z.enum(['owner', 'manager', 'reception', 'trainer', 'accountant']),
   fullName: z.string().trim().min(2).max(255),
 })
 
 const updateStaffSchema = z
   .object({
     email: z.string().trim().email().max(255).optional(),
-    role: z.enum(['owner', 'reception']).optional(),
+    role: z.enum(['owner', 'manager', 'reception', 'trainer', 'accountant']).optional(),
     fullName: z.string().trim().min(2).max(255).optional(),
     isActive: z.boolean().optional(),
   })
@@ -83,6 +84,7 @@ export const authRoutes = new Hono<AuthContext>()
           email: staff.email,
           role: staff.role,
           name: staff.fullName,
+          permissions: rolePermissions(staff.role),
         },
         'success',
       ),
@@ -101,10 +103,10 @@ export const authRoutes = new Hono<AuthContext>()
     })
     return c.json(ok(true, 'Password changed'))
   })
-  .get('/staff', authMiddleware, requireRole('owner'), async (c) => {
+  .get('/staff', authMiddleware, requirePermission('staff.manage'), async (c) => {
     return c.json(ok(await listStaff(), 'success'))
   })
-  .post('/staff', authMiddleware, requireRole('owner'), async (c) => {
+  .post('/staff', authMiddleware, requirePermission('staff.manage'), async (c) => {
     const user = c.get('user')
     const body = createStaffSchema.parse(await c.req.json())
     const staff = await createStaff(body)
@@ -118,7 +120,7 @@ export const authRoutes = new Hono<AuthContext>()
     })
     return c.json(ok(staff, 'Staff account created'), 201)
   })
-  .patch('/staff/:id', authMiddleware, requireRole('owner'), async (c) => {
+  .patch('/staff/:id', authMiddleware, requirePermission('staff.manage'), async (c) => {
     const user = c.get('user')
     const id = staffIdSchema.parse(c.req.param('id'))
     const body = updateStaffSchema.parse(await c.req.json())
@@ -136,7 +138,7 @@ export const authRoutes = new Hono<AuthContext>()
   .post(
     '/staff/:id/reset-password',
     authMiddleware,
-    requireRole('owner'),
+    requirePermission('staff.manage'),
     async (c) => {
       const user = c.get('user')
       const id = staffIdSchema.parse(c.req.param('id'))
