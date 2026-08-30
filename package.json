@@ -1,7 +1,7 @@
 {
   "name": "gym-backend",
   "private": true,
-  "version": "1.1.2",
+  "version": "1.1.3",
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
@@ -20,6 +20,8 @@
     "production:env:audit": "tsx scripts/production-env-audit.ts",
     "production:data:audit": "tsx scripts/production-data-audit.ts",
     "production:demo:cleanup": "tsx scripts/cleanup-production-demo.ts",
+    "production:showcase:seed": "tsx scripts/seed-production-showcase.ts",
+    "production:showcase:cleanup": "tsx scripts/cleanup-production-showcase.ts",
     "e2e:reset-rate-limits": "tsx scripts/reset-local-rate-limits.ts",
     "e2e:cleanup": "tsx scripts/cleanup-e2e.ts",
     "setup": "npm run db:check && npm run db:migrate && npm run db:seed"

@@ -28,6 +28,10 @@ async function main() {
       connection,
       "SELECT COUNT(*) AS total FROM members WHERE member_code IN ('EM-2401','EM-2402','EM-2403','EM-2404') AND full_name IN ('Aung Min','Thiri Aye','Kyaw Lin','Su Mon')",
     ),
+    showcaseMembers: await scalar(
+      connection,
+      "SELECT COUNT(*) AS total FROM members WHERE member_code LIKE 'DEMO-%' AND email LIKE '%@demo.elite.local'",
+    ),
     placeholderStaff: await scalar(
       connection,
       "SELECT COUNT(*) AS total FROM staff_users WHERE full_name IN ('Gym Owner','Reception Staff')",
@@ -40,7 +44,8 @@ async function main() {
   const warnings: string[] = []
   if (metrics.staff < 1) failures.push('no active production staff accounts are available')
   if (metrics.packages < 1) failures.push('no active membership packages are available')
-  if (metrics.seedMembers > 0) failures.push(`${metrics.seedMembers} known demo seed member record(s) remain in production`)
+  if (metrics.seedMembers > 0) failures.push(`${metrics.seedMembers} legacy seed member record(s) remain in production`)
+  if (metrics.showcaseMembers > 0) warnings.push(`${metrics.showcaseMembers} reversible DEMO showcase member record(s) are intentionally enabled`)
   if (metrics.trainers === 0) warnings.push('no active trainers are configured yet')
   if (metrics.placeholderStaff > 0) warnings.push(`${metrics.placeholderStaff} bootstrap staff profile(s) still use placeholder display names`)
   if (metrics.members === 0) warnings.push('production has no members yet; this is valid before opening but must be intentional')
