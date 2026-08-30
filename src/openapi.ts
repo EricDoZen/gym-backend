@@ -2,7 +2,7 @@ export const openApiDoc = {
   openapi: '3.0.3',
   info: {
     title: 'Elite Myanmar Gym API',
-    version: '1.1.0',
+    version: '1.1.1',
     description:
       'Production V1.1 Operations API for Elite Myanmar gym management: configurable packages, permission-based staff roles, immutable payment adjustments, trainer scheduling, reports and internal notifications. Staff and member portal JWTs are intentionally separated.',
   },
