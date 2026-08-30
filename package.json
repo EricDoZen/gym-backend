@@ -8,7 +8,7 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "test": "tsx scripts/test-suite.ts",
-    "test:unit": "vitest run tests/health.test.ts tests/docs.test.ts tests/rate-limit.test.ts",
+    "test:unit": "tsx scripts/test-suite.ts tests/health.test.ts tests/docs.test.ts tests/rate-limit.test.ts",
     "db:check": "tsx scripts/db-check.ts",
     "db:migrate": "tsx scripts/migrate.ts",
     "db:seed": "tsx scripts/seed.ts",

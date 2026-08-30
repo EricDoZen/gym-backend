@@ -3,6 +3,7 @@ import { and, eq, inArray, like } from 'drizzle-orm'
 import { getDb, closeDb } from '../src/db/client.js'
 import { env } from '../src/env.js'
 import {
+  PRODUCTION_DATABASE_NAME,
   assertNonProductionDatabase,
   databaseNameFromSettings,
 } from '../src/lib/database-safety.js'
@@ -27,9 +28,18 @@ import {
 
 async function main() {
   const apply = process.argv.includes('--apply')
+  const allowProduction = process.argv.includes('--allow-production')
   if (apply) {
     const database = databaseNameFromSettings(env.DATABASE_URL, env.DB_NAME)
-    assertNonProductionDatabase(database, 'E2E cleanup')
+    if (database === PRODUCTION_DATABASE_NAME) {
+      if (!allowProduction || process.env.ALLOW_PRODUCTION_E2E_CLEANUP !== '1') {
+        throw new Error(
+          'Refusing production E2E cleanup. Require --allow-production and ALLOW_PRODUCTION_E2E_CLEANUP=1',
+        )
+      }
+    } else {
+      assertNonProductionDatabase(database, 'E2E cleanup')
+    }
   }
   const db = getDb()
   const testMembers = await db
