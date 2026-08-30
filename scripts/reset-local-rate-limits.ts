@@ -3,11 +3,14 @@ import { like, or } from 'drizzle-orm'
 import { closeDb, getDb } from '../src/db/client.js'
 import { rateLimitBuckets } from '../src/db/schema.js'
 import { env } from '../src/env.js'
+import {
+  assertNonProductionDatabase,
+  databaseNameFromSettings,
+} from '../src/lib/database-safety.js'
 
 async function main() {
-  if (env.NODE_ENV === 'production') {
-    throw new Error('Refusing to reset rate limits when NODE_ENV=production')
-  }
+  const database = databaseNameFromSettings(env.DATABASE_URL, env.DB_NAME)
+  assertNonProductionDatabase(database, 'Rate-limit reset')
 
   const db = getDb()
   const filters = [

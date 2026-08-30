@@ -1,0 +1,57 @@
+name: Recovery Rehearsal
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Sunday 03:30 Asia/Yangon (Saturday 21:00 UTC)
+    - cron: '0 21 * * 6'
+
+permissions:
+  contents: read
+  issues: write
+
+env:
+  DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+  BACKUP_KEY_BASE64: ${{ secrets.BACKUP_KEY_BASE64 }}
+  BACKUP_DIR: ${{ runner.temp }}/elite-gym-rehearsal
+
+jobs:
+  rehearse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Require recovery secrets
+        shell: bash
+        run: |
+          test -n "$DATABASE_URL" || { echo "PRODUCTION_DATABASE_URL is missing" >&2; exit 1; }
+          test -n "$BACKUP_KEY_BASE64" || { echo "BACKUP_KEY_BASE64 is missing" >&2; exit 1; }
+      - run: npm run db:backup
+      - run: npm run db:backup:verify
+      - name: Restore into isolated temporary database and verify
+        run: npm run db:restore:rehearsal
+      - name: Create failure alert issue
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = 'ALERT: Elite Gym recovery rehearsal failed'
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              per_page: 100,
+            })
+            if (!issues.some((issue) => issue.title === title)) {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body: `Weekly restore rehearsal failed. Review workflow run ${context.runId}.`,
+              })
+            }

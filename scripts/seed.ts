@@ -5,6 +5,7 @@ import { closeDb, getDb } from '../src/db/client.js'
 import {
   checkins,
   members,
+  membershipPackagePriceHistory,
   membershipPackages,
   payments,
   staffUsers,
@@ -12,11 +13,48 @@ import {
 import { getInsertId } from '../src/lib/insert-id.js'
 import { parseFlexibleDate, toSqlDate } from '../src/lib/dates.js'
 import { env } from '../src/env.js'
+import {
+  databaseNameFromSettings,
+  isProductionDatabaseName,
+} from '../src/lib/database-safety.js'
 
 const PACKAGES = [
-  { code: 'basic', name: 'Basic', priceMmk: 150_000, durationDays: 30 },
-  { code: 'standard', name: 'Standard', priceMmk: 350_000, durationDays: 365 },
-  { code: 'premium', name: 'Premium', priceMmk: 500_000, durationDays: 365 },
+  {
+    code: 'basic',
+    name: 'Basic',
+    description: 'Gym access membership',
+    priceMmk: 150_000,
+    durationDays: 30,
+    freezeAllowanceDays: 0,
+    renewalWindowDays: 30,
+    allowUpgrade: true,
+    allowDowngrade: false,
+    sortOrder: 10,
+  },
+  {
+    code: 'standard',
+    name: 'Standard',
+    description: 'Gym access with standard membership benefits',
+    priceMmk: 350_000,
+    durationDays: 365,
+    freezeAllowanceDays: 14,
+    renewalWindowDays: 30,
+    allowUpgrade: true,
+    allowDowngrade: true,
+    sortOrder: 20,
+  },
+  {
+    code: 'premium',
+    name: 'Premium',
+    description: 'Premium all-access membership',
+    priceMmk: 500_000,
+    durationDays: 365,
+    freezeAllowanceDays: 30,
+    renewalWindowDays: 45,
+    allowUpgrade: false,
+    allowDowngrade: true,
+    sortOrder: 30,
+  },
 ]
 
 const SEED_MEMBERS = [
@@ -71,7 +109,18 @@ const SEED_MEMBERS = [
 ]
 
 async function main() {
-  if (!env.DATABASE_URL) {
+  const database = databaseNameFromSettings(env.DATABASE_URL, env.DB_NAME)
+  const productionTarget = isProductionDatabaseName(database)
+  if (
+    productionTarget &&
+    process.env.ALLOW_PRODUCTION_SEED !== '1'
+  ) {
+    throw new Error(
+      'Seed refused for protected production database. Set ALLOW_PRODUCTION_SEED=1 only for an intentional first-time production bootstrap.',
+    )
+  }
+
+  if (!env.DATABASE_URL && !env.DB_HOST) {
     console.error('DATABASE_URL is required')
     process.exit(1)
   }
@@ -96,8 +145,18 @@ async function main() {
     return
   }
 
+  const packageEffectiveFrom = toSqlDate(new Date())
   for (const pkg of PACKAGES) {
-    await db.insert(membershipPackages).values(pkg)
+    const result = await db.insert(membershipPackages).values({
+      ...pkg,
+      effectiveFrom: packageEffectiveFrom,
+    })
+    const packageId = getInsertId(result)
+    await db.insert(membershipPackagePriceHistory).values({
+      packageId,
+      priceMmk: pkg.priceMmk,
+      effectiveFrom: packageEffectiveFrom,
+    })
   }
 
   const ownerHash = await bcrypt.hash(env.SEED_OWNER_PASSWORD, 12)
@@ -117,6 +176,12 @@ async function main() {
       fullName: 'Reception Staff',
     },
   ])
+
+  if (productionTarget) {
+    console.log('Production bootstrap complete: packages and staff only; demo members/payments/check-ins were not created')
+    await closeDb()
+    return
+  }
 
   const memberIds: Record<string, number> = {}
   for (const member of SEED_MEMBERS) {

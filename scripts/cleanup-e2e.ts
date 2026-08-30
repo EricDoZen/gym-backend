@@ -1,6 +1,11 @@
 import 'dotenv/config'
 import { and, eq, inArray, like } from 'drizzle-orm'
 import { getDb, closeDb } from '../src/db/client.js'
+import { env } from '../src/env.js'
+import {
+  assertNonProductionDatabase,
+  databaseNameFromSettings,
+} from '../src/lib/database-safety.js'
 import {
   auditLogs,
   bookings,
@@ -22,6 +27,10 @@ import {
 
 async function main() {
   const apply = process.argv.includes('--apply')
+  if (apply) {
+    const database = databaseNameFromSettings(env.DATABASE_URL, env.DB_NAME)
+    assertNonProductionDatabase(database, 'E2E cleanup')
+  }
   const db = getDb()
   const testMembers = await db
     .select({ id: members.id, name: members.fullName, email: members.email })

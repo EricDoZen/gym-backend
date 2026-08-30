@@ -1,13 +1,13 @@
 import 'dotenv/config'
 import { createCipheriv, randomBytes } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createTiDBConnection, getDatabaseTargetLabel } from '../src/db/config.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const rootDir = join(__dirname, '..')
-const backupDir = join(rootDir, 'backups')
+const backupDir = resolve(process.env.BACKUP_DIR ?? join(rootDir, 'backups'))
 const keyPath = join(rootDir, '.backup-key')
 const tables = [
   'staff_users',
@@ -37,6 +37,12 @@ const tables = [
 ] as const
 
 function loadOrCreateKey() {
+  const configured = process.env.BACKUP_KEY_BASE64?.trim()
+  if (configured) {
+    const key = Buffer.from(configured, 'base64')
+    if (key.length !== 32) throw new Error('BACKUP_KEY_BASE64 must decode to exactly 32 bytes')
+    return key
+  }
   if (existsSync(keyPath)) {
     const key = Buffer.from(readFileSync(keyPath, 'utf8').trim(), 'base64')
     if (key.length !== 32) throw new Error('.backup-key must decode to exactly 32 bytes')
@@ -93,6 +99,15 @@ async function main() {
   writeFileSync(output, envelope)
   console.log(`Encrypted backup created: ${output}`)
   console.log(`Tables: ${Object.keys(data).length}; encrypted bytes: ${envelope.length}`)
+
+  const offsiteDir = process.env.BACKUP_OFFSITE_DIR?.trim()
+  if (offsiteDir) {
+    const destinationDir = resolve(offsiteDir)
+    mkdirSync(destinationDir, { recursive: true })
+    const destination = join(destinationDir, output.split(/[\\/]/).at(-1) ?? `elite-gym-${stamp}.egymbak`)
+    copyFileSync(output, destination)
+    console.log(`Offsite backup copy created: ${destination}`)
+  }
 }
 
 main().catch((error) => {

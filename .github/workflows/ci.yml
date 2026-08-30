@@ -21,9 +21,42 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npm audit --audit-level=high
-      - name: Run database-independent tests
-        run: npx vitest run tests/health.test.ts tests/docs.test.ts tests/rate-limit.test.ts
+      - run: npm run security:scan
+      - run: npm run test:unit
+      - name: Git whitespace check
+        run: git diff --check
       - name: Migration inventory
         run: |
           test -f src/db/migrations/0007_v1_1_operations.sql
-          test "$(find src/db/migrations -maxdepth 1 -name '*.sql' | wc -l)" -ge 7
+          test "$(find src/db/migrations -maxdepth 1 -name '*.sql' | wc -l)" -eq 7
+
+  integration:
+    needs: verify
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DATABASE_URL: ${{ secrets.TEST_DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Detect isolated TiDB test credential
+        id: testdb
+        shell: bash
+        run: |
+          if [ -n "$DATABASE_URL" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::TEST_DATABASE_URL is not configured; isolated integration suite is skipped. Local release gate must remain green until the repository secret is added."
+          fi
+      - name: Run isolated integration suite
+        if: steps.testdb.outputs.configured == 'true'
+        run: npm test
+      - name: Record skipped integration gate
+        if: steps.testdb.outputs.configured != 'true'
+        run: echo "Integration gate skipped because TEST_DATABASE_URL is not configured."

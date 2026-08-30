@@ -7,17 +7,40 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 jobs:
   health:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Check backend health
-        run: curl --fail --silent --show-error --retry 2 --max-time 20 https://gym-backend-wheat.vercel.app/health
+      - name: Check backend health payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          health="$(curl --fail --silent --show-error --retry 2 --max-time 20 https://gym-backend-wheat.vercel.app/health)"
+          grep -q '"status":"ok"' <<<"$health"
+          grep -q '"database":"connected"' <<<"$health"
 
-      - name: Check backend readiness
-        run: curl --fail --silent --show-error --retry 2 --max-time 20 https://gym-backend-wheat.vercel.app/ready
+      - name: Check backend readiness payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          ready="$(curl --fail --silent --show-error --retry 2 --max-time 20 https://gym-backend-wheat.vercel.app/ready)"
+          grep -q '"status":"ready"' <<<"$ready"
+          grep -q '"database":"connected"' <<<"$ready"
+
+      - name: Check production security headers
+        shell: bash
+        run: |
+          set -euo pipefail
+          headers="$(mktemp)"
+          curl --fail --silent --show-error --max-time 20 -D "$headers" https://gym-backend-wheat.vercel.app/health -o /dev/null
+          grep -qi '^strict-transport-security: ' "$headers"
+          grep -qi '^x-content-type-options: nosniff' "$headers"
+          grep -qi '^x-frame-options: DENY' "$headers"
+          grep -qi '^referrer-policy: strict-origin-when-cross-origin' "$headers"
+          grep -qi '^x-request-id: ' "$headers"
 
       - name: Check production OpenAPI contract
         shell: bash
@@ -30,7 +53,7 @@ jobs:
           grep -q '"/api/ops/reports"' <<<"$doc"
           grep -q '"/api/portal/notifications"' <<<"$doc"
 
-      - name: Check production CORS
+      - name: Check production CORS allowlist
         shell: bash
         run: |
           set -euo pipefail
@@ -51,3 +74,24 @@ jobs:
               "https://gym-frontend-three-psi.vercel.app${path}" \
               -o /dev/null
           done
+
+      - name: Create persistent health alert issue
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = 'ALERT: Elite Gym production health check failed'
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              per_page: 100,
+            })
+            if (!issues.some((issue) => issue.title === title)) {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body: `Production health monitoring failed. Review workflow run ${context.runId}.`,
+              })
+            }

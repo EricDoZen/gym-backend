@@ -10,7 +10,7 @@ import {
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const rootDir = join(__dirname, '..')
-const backupDir = join(rootDir, 'backups')
+const backupDir = resolve(process.env.BACKUP_DIR ?? join(rootDir, 'backups'))
 const keyPath = join(rootDir, '.backup-key')
 const migrationsDir = join(rootDir, 'src', 'db', 'migrations')
 const restorePrefix = 'elite_gym_restore_rehearsal_'
@@ -27,8 +27,9 @@ function resolveBackupPath() {
 }
 
 function decryptBackup() {
-  if (!existsSync(keyPath)) throw new Error('.backup-key is missing')
-  const key = Buffer.from(readFileSync(keyPath, 'utf8').trim(), 'base64')
+  const configured = process.env.BACKUP_KEY_BASE64?.trim()
+  if (!configured && !existsSync(keyPath)) throw new Error('Backup key is missing')
+  const key = Buffer.from(configured ?? readFileSync(keyPath, 'utf8').trim(), 'base64')
   if (key.length !== 32) throw new Error('Invalid backup key length')
 
   const backupPath = resolveBackupPath()
