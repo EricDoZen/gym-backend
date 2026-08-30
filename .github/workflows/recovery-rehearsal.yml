@@ -13,7 +13,7 @@ permissions:
 env:
   DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
   BACKUP_KEY_BASE64: ${{ secrets.BACKUP_KEY_BASE64 }}
-  BACKUP_DIR: ${{ runner.temp }}/elite-gym-rehearsal
+  BACKUP_DIR: ${{ github.workspace }}/elite-gym-rehearsal
 
 jobs:
   rehearse:

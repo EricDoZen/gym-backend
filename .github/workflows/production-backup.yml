@@ -13,7 +13,7 @@ permissions:
 env:
   DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
   BACKUP_KEY_BASE64: ${{ secrets.BACKUP_KEY_BASE64 }}
-  BACKUP_DIR: ${{ runner.temp }}/elite-gym-backups
+  BACKUP_DIR: ${{ github.workspace }}/elite-gym-backups
 
 jobs:
   backup:
@@ -41,7 +41,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: elite-gym-production-backup-${{ github.run_id }}
-          path: ${{ runner.temp }}/elite-gym-backups/*.egymbak
+          path: ${{ github.workspace }}/elite-gym-backups/*.egymbak
           if-no-files-found: error
           retention-days: 30
       - name: Create failure alert issue
